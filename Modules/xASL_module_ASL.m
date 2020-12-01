@@ -35,7 +35,7 @@ function [result, x] = xASL_module_ASL(x)
 
 
 %% Admin
-x = xASL_init_GenericMutexModules(x, 'ASL'); % starts mutex locking process to ensure that everything will run only once
+x = xASL_init_InitializeMutex(x, 'ASL'); % starts mutex locking process to ensure that everything will run only once
 result = false;
 
 if ~isfield(x,'ApplyQuantification') || isempty(x.ApplyQuantification)
@@ -78,7 +78,7 @@ if ~xASL_exist(x.P.Path_ASL4D, 'file')
 end
 
 %% Manage an M0 within time series
-if isfield(x,'M0PositionInASL4D') && x.ApplyQuantification(5)
+if isfield(x,'M0PositionInASL4D')
     x.M0PositionInASL4D = xASL_str2num(x.M0PositionInASL4D); % make sure it is numeric when coming from JSON string
     if ~isnumeric(x.M0PositionInASL4D)
         warning('Something wrong with x.M0PositionInASL4D');
@@ -154,10 +154,25 @@ StateName{10} = '100_WADQC';
 
 
 %% Delete old files
-if (~x.mutex.HasState(StateName{3}) || ~x.mutex.HasState(StateName{4}))
+if ~x.mutex.HasState(StateName{3}) || ~x.mutex.HasState(StateName{4})
     % If we rerun the ASL module, then clean it fully for proper rerunning
     % This function cleans all ASL sessions, so only run this (once) for the first session
     xASL_adm_CleanUpBeforeRerun(x.D.ROOT, 2, false, false, x.P.SubjectID, x.P.SessionID);
+	
+	% Also clean the QC output files
+	x = xASL_adm_LoadX(x, [], true); % assume x.mat is newer than x
+
+	% Clear any previous QC images
+	if isfield(x,'Output_im') && isfield(x.Output_im,'ASL')
+		x.Output_im = rmfield(x.Output_im,'ASL');
+	end
+
+	if isfield(x,'Output') && isfield(x.Output,'ASL')
+		x.Output = rmfield(x.Output,'ASL');
+	end
+	
+	% And saved the cleaned up version
+	xASL_adm_SaveX(x);
 end
 
 if ~isfield(x,'motion_correction')
@@ -178,22 +193,17 @@ end
 
 [~, x] = xASL_adm_LoadParms(x.P.Path_ASL4D_parms_mat, x, bO);
 
-%% Define sequence (educated guess)
-if ~isfield(x,'Sequence') && ~isfield(x,'readout_dim')
-    warning('x.Sequence and x.readout_dim missing, might go wrong...');
-elseif ~isfield(x,'Sequence') && isfield(x,'readout_dim')
-    if strcmp(x.readout_dim,'2D')
-       x.Sequence = '2D_EPI'; % assume that 2D is 2D EPI, irrespective of vendor
-    elseif strcmp(x.readout_dim,'3D') && ( ~isempty(regexp(lower(x.Vendor),'philips')) || ~isempty(regexp(lower(x.Vendor),'siemens')) )
-           x.Sequence = '3D_GRASE'; % assume that 3D Philips or Siemens is 3D GRASE
-    elseif strcmp(x.readout_dim,'3D') && ~isempty(regexp(x.Vendor,'GE'))
-           x.Sequence = '3D_spiral'; % assume that 3D GE is 3D spiral
-    end
+if ~isfield(x,'Q')
+    x.Q = struct;
+    warning('x.Q didnt exist, are quantification parameters lacking?');
 end
+
+%% Define sequence (educated guess)
+x = xASL_adm_DefineASLSequence(x);
 
 %% -----------------------------------------------------------------------------
 %% 1 TopUp (WIP, only supported if FSL installed)
-Path_RevPE = xASL_adm_GetFileList(x.SESSIONDIR, '^ASL4D.*RevPE\.nii$', 'FPList', [0 Inf]);
+Path_RevPE = xASL_adm_GetFileList(x.SESSIONDIR, '^(ASL4D|M0).*RevPE\.nii$', 'FPList', [0 Inf]);
 
 iState = 1;
 if xASL_exist(x.P.Path_M0,'file') && ~isempty(Path_RevPE)
@@ -218,10 +228,11 @@ end
 iState = 2;
 if ~x.motion_correction
     if bO; fprintf('%s\n','Motion correction was disabled, skipping'); end
+    x.mutex.AddState(StateName{iState});
 elseif ~x.mutex.HasState(StateName{iState})
 
         % Remove previous files
-        DelList = {x.P.Path_mean_PWI_Clipped_sn_mat x.P.File_ASL4D_mat x.P.File_despiked_ASL4D x.P.File_despiked_ASL4D_mat 'rp_ASL4D.txt'};
+        DelList = {x.P.Path_mean_PWI_Clipped_sn_mat, x.P.File_ASL4D_mat, x.P.File_despiked_ASL4D, x.P.File_despiked_ASL4D_mat, 'rp_ASL4D.txt'};
         for iD=1:length(DelList)
             FileName = fullfile(x.SESSIONDIR, DelList{iD});
             xASL_delete(FileName);
@@ -237,7 +248,13 @@ elseif ~x.mutex.HasState(StateName{iState})
         end
 
         % Before motion correction, we align the images with ACPC
-        OtherList = {x.P.Path_M0}; % all other files will be created
+        PathB0 = fullfile(x.SESSIONDIR, 'B0.nii');
+        PathRevPE = fullfile(x.SESSIONDIR, 'ASL4D_RevPE.nii');
+        PathField = fullfile(x.SESSIONDIR, 'Field.nii');
+        PathFieldCoeff = fullfile(x.SESSIONDIR, 'TopUp_fieldcoef.nii');
+        PathUnwarped = fullfile(x.SESSIONDIR, 'Unwarped.nii');
+        
+        OtherList = {x.P.Path_M0, PathB0, PathRevPE, PathField, PathFieldCoeff, PathUnwarped, x.P.Path_ASL4D_ORI}; % all other files will be created
         if x.bAutoACPC
             xASL_im_CenterOfMass(x.P.Path_ASL4D, OtherList, 10); % set CenterOfMass to lower accepted distance for when rerunning wrong registration
         end
@@ -263,7 +280,13 @@ end
 iState = 3;
 if ~x.mutex.HasState(StateName{iState})
 
-    xASL_wrp_RegisterASL(x);
+	% Load the previously saved QC Output
+	x = xASL_adm_LoadX(x, [], true); % assume x.mat is newer than x
+
+    x = xASL_wrp_RegisterASL(x);
+
+	% And saved the cleaned up version
+	xASL_adm_SaveX(x);
 
     x.mutex.AddState(StateName{iState});
     xASL_adm_CompareDataSets([], [], x); % unit testing
@@ -325,7 +348,7 @@ if xASL_exist(x.P.Path_c1T1,'file') && xASL_exist(x.P.Path_c2T1,'file')
 		if  bO; fprintf('%s\n',[StateName{iState} ' has already been performed, skipping...']); end
     end
 elseif  bO; fprintf('%s\n',['there were no pGM/pWM, skipping ' StateName{iState} '...']);
-    x = xASL_wrp_ResolutionEstimation(x);
+    x = xASL_adm_DefineASLResolution(x);
 end
 
 
@@ -455,5 +478,6 @@ cd(oldFolder);
 x.mutex.Unlock();
 x.result = true;
 result = true;
+close all;
 
 end

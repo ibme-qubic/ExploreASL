@@ -11,7 +11,7 @@ function xASL_wrp_Quantify(x, PWI_Path, OutputPath, M0Path, SliceGradientPath)
 %   SliceGradientPath   - path to Slice gradient NIfTI (OPTIONAL, default = x.P.Pop_Path_SliceGradient_extrapolated)
 %
 % OUTPUT: n/a
-% OUTPUT FILES: NIfTI containing quantified CBF map in native or standard space (depending on input NIfTI), 
+% OUTPUT FILES: NIfTI containing quantified CBF map in native or standard space (depending on input NIfTI),
 % or other derivatives that need a quantification, e.g. FEAST
 %
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -119,11 +119,11 @@ else
 
     fprintf('%s\n','M0 scan used');
     M0_im = xASL_io_Nifti2Im(M0Path);
-    
+
     if xASL_stat_SumNan(M0_im(:))==0
         warning(['Empty M0:' M0Path]);
     end
-    
+
     M0_parms = xASL_adm_LoadParms(x.P.Path_M0_parms_mat, x);
 
 % %     % Philips dcm2niiX scaling fix:
@@ -160,7 +160,7 @@ end
 
 %% ------------------------------------------------------------------------------------------------
 %% 4)   ASL & M0 parameters comparisons (e.g. TE, these should be the same with a separate M0 scan, for similar T2 & T2*-related quantification effects, and for similar geometric distortion)
-if strcmp(x.M0,'separate_scan')
+if strcmpi(x.M0,'separate_scan')
     if  isfield(ASL_parms,'EchoTime') && isfield(M0_parms,'EchoTime')
         % Check equality of TE, but allow them to be 1% different, % Throw error if TE of ASL and M0 are not exactly the same!
         if  ASL_parms.EchoTime<(M0_parms.EchoTime*0.95) || ASL_parms.EchoTime>(M0_parms.EchoTime*1.05)
@@ -168,7 +168,7 @@ if strcmp(x.M0,'separate_scan')
             warning('TE of ASL and M0 were unequal! Check geometric distortion');
         end
 
-        if strcmp(x.Sequence,'3D_spiral')
+        if strcmpi(x.Sequence,'3D_spiral')
            CorrFactor = x.Q.T2;
            CorrName = 'T2';
         else % assume T2* signal decay 2D_EPI or 3D GRASE
@@ -184,125 +184,92 @@ if strcmp(x.M0,'separate_scan')
             fprintf('%s\n', ['Delta TE between ASL ' num2str(ASL_parms.EchoTime) 'ms & M0 ' num2str(M0_parms.EchoTime) 'ms, for ' x.Sequence ', assuming ' CorrName ' decay of arterial blood, factor applied to M0: ' num2str(ScalingM0/ScalingASL)]);
         end
     else
-        warning('Could not compare TEs from ASL & M0, parms files missing!');
+        warning('Could not compare TEs from ASL & M0, JSON fields missing!');
     end
 end
 
 
 
-
-
-%% ------------------------------------------------------------------------------------------------
-%% 5    Load SliceGradient
-if  strcmp(x.readout_dim,'2D')
-    SliceGradient = xASL_io_Nifti2Im(SliceGradientPath);
-else
+if ~x.ApplyQuantification(3) % if conversion PWI for label units is not requested
     SliceGradient = [];
-end
+else
 
-
-%% ------------------------------------------------------------------------------------------------
-%% 6    Initialize quantification parameters
-if ~isfield(x.Q,'nCompartments') || isempty(x.Q.nCompartments) || x.Q.nCompartments>2
-    x.Q.nCompartments   = 1; % by default, we use a single-compartment model, as proposed by the Alsop et al. MRM 2014 concensus paper
-end
-
-% THIS IS FOR BACKWARD COMPATIBILITY NOW, WILL CHANGE (also per BIDS)
-% Check if there are quantification data in the sets:
-
-% Find current index
-iSubj = find(strcmp(x.SUBJECTS,x.P.SubjectID));
-iSess = find(strcmp(x.SESSIONS,x.P.SessionID));
-iSubjSess = (iSubj-1)*x.nSessions + iSess;
-
-Sets2Find = {'qnt_ATT' 'qnt_T1a' 'qnt_lab_eff' 'LabelingEfficiency'};
-FieldNames = {'ATT' 'BloodT1' 'LabelingEfficiency' 'LabelingEfficiency'};
-
-for iSet=1:length(Sets2Find)
-    TempIndex       = find(cellfun(@(x) strcmp(x, Sets2Find{iSet}), x.S.SetsName));
-	if ~isempty(TempIndex)
-		SetIndex(iSet) = TempIndex;
-	else
-		SetIndex(iSet) = NaN;
+    %% ------------------------------------------------------------------------------------------------
+    %% 5    Load SliceGradient
+    if  strcmpi(x.readout_dim,'2D')
+        SliceGradient = xASL_io_Nifti2Im(SliceGradientPath);
+    else
+        SliceGradient = [];
     end
 
-    if ~isnan(SetIndex(iSet))
-        % Use the data out SetsID
-        x.Q.(FieldNames{iSet}) = x.S.SetsID(iSubjSess, SetIndex(iSet));
-        % But check if this is the true data content, or if this is an index (e.g. 1, 2, 3, 4)
-        % If its not continuous (x.S.Sets_1_2Sample~=3), then ExploreASL believes that this is an ordinal data set (groups)
-        if x.S.Sets1_2Sample(SetIndex(iSet))~=3
-            if x.Q.(FieldNames{iSet})<=length(x.S.SetsOptions{SetIndex(iSet)})
-                x.Q.(FieldNames{iSet}) = x.S.SetsOptions{SetIndex(iSet)}{x.Q.(FieldNames{iSet})};
+
+    %% ------------------------------------------------------------------------------------------------
+    %% 6    Initialize quantification parameters
+    if ~isfield(x.Q,'nCompartments') || isempty(x.Q.nCompartments) || x.Q.nCompartments>2
+        x.Q.nCompartments = 1; % by default, we use a single-compartment model, as proposed by the Alsop et al. MRM 2014 concensus paper
+    end
+
+    if ~isfield(x.Q,'ATT')
+        x.Q.ATT = 1800; % ms as default micro-vascular ATT
+    end
+    if ~isfield(x.Q,'TissueT1')
+        x.Q.TissueT1 = 1240; % T1 GM tissue @ 3T
+    end
+    if ~isfield(x.Q,'BloodT1')
+        x.Q.BloodT1  = 1650; % T1 relaxation time of arterial blood DEFAULT=1650 @ 3T
+    end
+    if ~isfield(x.Q,'T2art')
+        x.Q.T2art = 50; % T2* of arterial blood, only used when no M0 image
+    end
+    if ~isfield(x.Q,'Lambda')
+        x.Q.Lambda = 0.9; % Brain/blood water coefficient (mL 1H/ mL blood)
+    end
+    % Check correct order of magnitude blood T1 (this value should be around 1700, or ~ 1000-3000)
+    if x.Q.BloodT1<10
+        x.Q.BloodT1 = x.Q.BloodT1.*1000;
+    end
+
+    if ~isfield(x.Q,'LabelingType')
+           error('Unknown LabelingType, needed for quantification');
+    elseif isempty(regexpi(x.Q.LabelingType,'^(PC|P|C)ASL$'))
+           error('x.Q.LabelingType was invalid, should be PASL|CASL|PCASL');
+    elseif strcmpi(x.Q.LabelingType,'PCASL')
+           x.Q.LabelingType = 'CASL';
+    end
+
+    if ~isfield(x.Q,'BackGrSupprPulses')
+        warning('No background suppression pulses known, assuming no background suppression');
+        x.Q.BackGrSupprPulses = 0;
+    end
+
+
+    %% 7    Labeling efficiency
+    if ~isfield(x.Q,'LabelingEfficiency') || isempty(x.Q.LabelingEfficiency)
+        if ~isfield(x.Q,'LabelingEfficiency')
+            switch lower(x.Q.LabelingType)
+                case 'pasl'
+                    x.Q.LabelingEfficiency = 0.98; % (concensus paper, Wong, MRM 1998)
+                case 'casl'
+                    x.Q.LabelingEfficiency = 0.85; % (concensus paper, Dai, MRM 2008)
             end
         end
-        if ischar(x.Q.(FieldNames{iSet})) % convert string to float
-            x.Q.(FieldNames{iSet}) = str2num(x.Q.(FieldNames{iSet}));
-        end
     end
-end
-
-
-if ~isfield(x.Q,'ATT')
-    x.Q.ATT = 1800; % ms as default micro-vascular ATT
-end
-if ~isfield(x.Q,'TissueT1')
-    x.Q.TissueT1 = 1240; % T1 GM tissue @ 3T
-end
-if ~isfield(x.Q,'BloodT1')
-    x.Q.BloodT1  = 1650; % T1 relaxation time of arterial blood DEFAULT=1650 @ 3T
-end
-if ~isfield(x.Q,'T2art')
-    x.Q.T2art = 50; % T2* of arterial blood, only used when no M0 image
-end
-if ~isfield(x.Q,'Lambda')
-    x.Q.Lambda = 0.9; % Brain/blood water coefficient (mL 1H/ mL blood)
-end
-% Check correct order of magnitude blood T1 (this value should be around 1700, or ~ 1000-3000)
-if x.Q.BloodT1<10
-    x.Q.BloodT1 = x.Q.BloodT1.*1000;
-end
-
-if ~isfield(x.Q,'LabelingType')
-       error('Unknown LabelingType, needed for quantification');
-elseif isempty(regexp(x.Q.LabelingType,'^(PC|P|C)ASL$'))
-       error('x.Q.LabelingType was invalid, should be PASL|CASL|PCASL');
-elseif strcmp(x.Q.LabelingType,'PCASL')
-       x.Q.LabelingType = 'CASL';
-end
-
-if ~isfield(x.Q,'BackGrSupprPulses')
-    warning('No background suppression pulses known, assuming no background suppression');
-    x.Q.BackGrSupprPulses = 0;
-end
-
-
-%% 7    Labeling efficiency
-if ~isfield(x.Q,'LabelingEfficiency') || isempty(x.Q.LabelingEfficiency)
-    if ~isfield(x.Q,'LabelingEfficiency')
-        switch x.Q.LabelingType
-            case 'PASL'
-                x.Q.LabelingEfficiency = 0.98; % (concensus paper, Wong, MRM 1998)
-            case 'CASL'
-                x.Q.LabelingEfficiency = 0.85; % (concensus paper, Dai, MRM 2008)
-        end
+    x.Q.LabEff_Bsup = 1; % default for no background suppression
+    % Apply the effect of background suppression pulses on labeling efficiency
+    switch x.Q.BackGrSupprPulses
+        case 0 % when you have an M0, but no background suppression used for ASL
+            % Then the labeling efficiency doesn't change by background suppression
+        case 2 % e.g. Philips 2D EPI or Siemens 3D GRASE
+            x.Q.LabEff_Bsup = 0.83; % 0.83 = 2 background suppression pulses (Garcia et al., MRM 2005)
+        case 4 % e.g. Philips 3D GRASE
+            x.Q.LabEff_Bsup = 0.81; % 0.81 = as implemented by Philips
+        case 5 % e.g. GE 3D spiral
+            x.Q.LabEff_Bsup = 0.75; % 0.75 = 5 background suppression pulses (GE FSE) (Garcia et al., MRM 2005)
     end
-end
-x.Q.LabEff_Bsup = 1; % default for no background suppression
-% Apply the effect of background suppression pulses on labeling efficiency
-switch x.Q.BackGrSupprPulses
-    case 0 % when you have an M0, but no background suppression used for ASL
-        % Then the labeling efficiency doesn't change by background suppression
-    case 2 % e.g. Philips 2D EPI or Siemens 3D GRASE
-        x.Q.LabEff_Bsup = 0.83; % 0.83 = 2 background suppression pulses (Garcia et al., MRM 2005)
-    case 4 % e.g. Philips 3D GRASE
-        x.Q.LabEff_Bsup = 0.81; % 0.81 = as implemented by Philips
-    case 5 % e.g. GE 3D spiral
-        x.Q.LabEff_Bsup = 0.75; % 0.75 = 5 background suppression pulses (GE FSE) (Garcia et al., MRM 2005)
-end
 
-x.Q.LabEff_Orig = x.Q.LabelingEfficiency;
-x.Q.LabelingEfficiency = x.Q.LabelingEfficiency*x.Q.LabEff_Bsup;
+    x.Q.LabEff_Orig = x.Q.LabelingEfficiency;
+    x.Q.LabelingEfficiency = x.Q.LabelingEfficiency*x.Q.LabEff_Bsup;
+end
 
 %% ------------------------------------------------------------------------------------------------
 %% 8    Perform Quantification
@@ -315,12 +282,12 @@ end
 if x.ApplyQuantification(5)==0
     MeanCBF = xASL_stat_MeanNan(CBF(:));
     if MeanCBF>666 % this is the average including air
-        CBF = CBF .* (20./MeanCBF);
+        CBF = CBF .* (10./MeanCBF);
         warning('M0 division was disabled & CBF image had too high values');
-        fprintf('%s\n',['mean whole image CBF normalized from ' xASL_num2str(MeanCBF) ' to 20 mL/100g/min']);
+        fprintf('%s\n',['mean whole image CBF normalized from ' xASL_num2str(MeanCBF) ' to 10 mL/100g/min']);
     end
 end
-    
+
 
 
 

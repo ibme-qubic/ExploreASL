@@ -1,7 +1,7 @@
-function EPAD_Fix_SWI_BIDS(AnalysisDir)
-%EPAD_Fix_SWI_BIDS Fix dcm2nii SWI conversion per BIDS
+function EPAD_BIDS_Fix_SWI(AnalysisDir)
+%EPAD_BIDS_Fix_SWI Fix dcm2nii SWI conversion per BIDS
 %
-% FORMAT: EPAD_Fix_SWI_BIDS(AnalysisDir)
+% FORMAT: EPAD_BIDS_Fix_SWI(AnalysisDir)
 % 
 % INPUT:
 %   AnalysisDir - path to folder containing the NIfTI/BIDS data (e.g. /data/RAD/share/EPAD/analysis)
@@ -13,11 +13,16 @@ function EPAD_Fix_SWI_BIDS(AnalysisDir)
 %              It puts all SWI files in a single SWI folder & manages the
 %              BIDS suffixes (i.e. run-1 run-2 etc, PartMag & PartPhase
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
-% EXAMPLE: EPAD_Fix_SWI_BIDS(AnalysisDir);
+% EXAMPLE: EPAD_BIDS_Fix_SWI(AnalysisDir);
 % __________________________________
 % Copyright 2015-2019 ExploreASL
 
-SubjectList = xASL_adm_GetFsList(AnalysisDir,'^\d{3}EPAD\d*$', true, [], [], [0 Inf]);
+SubjectList = xASL_adm_GetFsList(AnalysisDir,'^\d{3}EPAD\d*(|_\d*)$', true, [], [], [0 Inf]);
+
+if isempty(SubjectList)
+    warning('Didnt find subjects for SWI curation, skipping');
+    return;
+end
 
 fprintf('%s','Adjusting SWI BIDS:  0%');
 
@@ -71,11 +76,12 @@ for iSubject=1:length(SubjectList)
         end
     end
     
-    if exist(SWIdir,'dir') && isempty(xASL_adm_GetFileList(SWIdir, '.*', 'FPListRec', [0 Inf]))
+    if exist(SWIdir,'dir') && isempty(xASL_adm_GetFileList(SWIdir, '^.*$', 'FPListRec', [0 Inf]))
        rmdir(SWIdir);
     end
 end
 
+xASL_TrackProgress(1, 1);
 fprintf('\n');
 
 end

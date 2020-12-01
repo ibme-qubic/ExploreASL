@@ -34,7 +34,7 @@ function xASL_wrp_ResampleASL(x)
 
 %% ------------------------------------------------------------------------------------------
 %% 0) Administration
-if strcmp(x.M0,'no_background_suppression')
+if strcmpi(x.M0,'no_background_suppression')
     x.M0 = 'UseControlAsM0'; % backward compatibility
 end
 
@@ -51,7 +51,7 @@ if ~isfield(x,'SavePWI4D')
     x.SavePWI4D   = 0;
 end
 
-xASL_wrp_CreateASLDeformationField(x); % make sure we have the deformation field in ASL resolution
+xASL_im_CreateASLDeformationField(x); % make sure we have the deformation field in ASL resolution
 
 %% TopUp files
 PathB0 = fullfile(x.SESSIONDIR ,'B0.nii');
@@ -65,7 +65,7 @@ xASL_spm_deformations(x, InputPaths, OutputPaths, [], [], [], x.P.Path_y_ASL);
 
 %% ------------------------------------------------------------------------------------------
 %% 1    Create slice gradient image for quantification reference, in case of 2D ASL
-xASL_wrp_CreateSliceGradient(x);
+xASL_im_CreateSliceGradient(x);
 
 
 %% ------------------------------------------------------------------------------------------
@@ -77,7 +77,7 @@ xASL_io_SaveNifti(x.P.Path_despiked_ASL4D, x.P.Path_temp_despiked_ASL4D, tempnii
 % digitization artifacts in the spatial processing
 % Plus this creates a temporary copy to not touch the original ASL file
 
-if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % BACKWARDS COMPATIBILITY, CAN BE REMOVED
+if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % BACKWARDS COMPATIBILITY, AND NOW NEEDED ALSO WHEN DCT APPLIED ON TOP OF AFFINE
     AffineTransfPath = x.P.Path_mean_PWI_Clipped_sn_mat;
 else
     AffineTransfPath = [];
@@ -117,14 +117,13 @@ if  nVolumes>1 % this is when a mean control image can be created
     %% Bilateral filter to remove smooth artifacts
     if ~isdeployed % skip this part for compilation, to avoid DIP image issues
         if  x.BILAT_FILTER>0 && nVolumes>9
-            volIM                       = xASL_io_ReadNifti(x.P.Path_rtemp_despiked_ASL4D); % load resliced time-series
-            VoxelSize                   = double(volIM.hdr.pixdim(2:4));
-            volIM                       = single(volIM.dat(:,:,:,:,:,:,:,:));
+            volIM = xASL_io_ReadNifti(x.P.Path_rtemp_despiked_ASL4D); % load resliced time-series
+            VoxelSize = double(volIM.hdr.pixdim(2:4));
+            volIM = single(volIM.dat(:,:,:,:,:,:,:,:));
 
-            mask                        = x.skull; % get standard space mask
-            mask(isnan(mean(volIM,4)))  = 0; % remove outside FoV voxels
-
-            ovol                        = xASL_wrp_Filter(volIM, mask, VoxelSize, x); % run filter
+            mask = x.skull; % get standard space mask
+            mask(isnan(mean(volIM,4))) = 0; % remove outside FoV voxels
+            ovol = xASL_im_BilateralFilter(volIM, mask, VoxelSize, x); % run filter
 
             xASL_io_SaveNifti( x.P.Path_rtemp_despiked_ASL4D, x.P.Path_rtemp_despiked_ASL4D, ovol,32,0 ); % store in file
         end
@@ -137,7 +136,7 @@ if  nVolumes>1 % this is when a mean control image can be created
     InputFiles  = {x.P.Path_mean_control};
     OutputFiles = {x.P.Pop_Path_mean_control};
 
-    if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % BACKWARDS COMPATIBILITY, CAN BE REMOVED
+    if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % Backwards compatability, and also needed for the Affine+DCT co-registration of ASL-T1w
         AffineTransfPath = x.P.Path_mean_PWI_Clipped_sn_mat;
     else
         AffineTransfPath = [];
@@ -150,13 +149,13 @@ if  nVolumes>1 % this is when a mean control image can be created
     xASL_adm_DeleteFilePair(x.P.Path_rdespiked_ASL4D, 'mat');
 
     % Visual check of M0-pGM registration for masking
-    xASL_im_CreateVisualFig(x, {x.P.Pop_Path_mean_control x.P.Pop_Path_rc1T1}, x.D.M0regASLdir,[0.5 0.2]);
+    xASL_vis_CreateVisualFig(x, {x.P.Pop_Path_mean_control x.P.Pop_Path_rc1T1}, x.D.M0regASLdir,[0.5 0.2]);
 
-    if strcmp(x.M0,'UseControlAsM0') && nVolumes==1
+    if strcmpi(x.M0,'UseControlAsM0') && nVolumes==1
         warning('Couldnt create mean control image to be used as M0, timeseries missing');
     end
 
-    if  strcmp(x.M0,'UseControlAsM0')
+    if  strcmpi(x.M0,'UseControlAsM0')
         % if there is no background suppression, we use the mean control
         % image as M0 image, which has perfect registration
 

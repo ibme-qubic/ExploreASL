@@ -33,6 +33,11 @@ function xASL_qc_CreatePDF(x, DoSubject)
 % Copyright (C) 2015-2019 ExploreASL
 
 
+if ~usejava('jvm') % only if JVM loaded
+    fprintf('Warning: skipping PDF report, JVM missing\n');
+    return;
+end
+
 fprintf('Printing ExploreASL PDF report:   ');
 
 
@@ -238,6 +243,7 @@ catch ME
 end
 
 fprintf('\n');
+close all; % close the Matlab figure
 
 
 end

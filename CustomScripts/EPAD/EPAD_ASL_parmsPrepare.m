@@ -31,7 +31,13 @@ G.SliceReadoutTime    = {36.5278 36.5278 35 0};
 FieldsG = fields(G);
 
 fprintf('%s','Preparing ASL parameter files for different sites:   ');
-SubjectList = xASL_adm_GetFsList(AnalysisDir, '^\d{3}-\d*$', true, [], [], [0 Inf]);
+SubjectList = xASL_adm_GetFsList(AnalysisDir, '^\d{3}EPAD\d*(|_\d*)$', true, [], [], [0 Inf]);
+
+if isempty(SubjectList)
+    warning('No subjects found for ASL site-specific curation, skipping');
+    return;
+end
+
 for iSubject=1:length(SubjectList)
     xASL_TrackProgress(iSubject,length(SubjectList));
     % Find which sequence the site uses
@@ -42,18 +48,19 @@ for iSubject=1:length(SubjectList)
         error(['Multiple sequence defined for ' SubjectList{iSubject} ', should be only 1']);
     end
     
-    % Find ASL&M0 parms files
-    ParmsFiles = xASL_adm_GetFileList(fullfile(AnalysisDir, SubjectList{iSubject}), '^(ASL4D|M0)_parms\.mat$', 'FPListRec', [0 Inf]);
-    for iParms=1:length(ParmsFiles)
-        NewParms = load(ParmsFiles{iParms}, '-mat');
-        parms = NewParms.parms;
-
+    % Find ASL&M0 JSON files
+    JsonFiles = xASL_adm_GetFileList(fullfile(AnalysisDir, SubjectList{iSubject}), '^(ASL4D|M0)\.json$', 'FPListRec', [0 Inf]);
+    for iJson=1:length(JsonFiles)    
+        parms = xASL_import_json(JsonFiles{iJson});
         for iG=1:length(FieldsG)
             parms.(FieldsG{iG}) = G.(FieldsG{iG}){SequenceN};
         end
-        save(ParmsFiles{iParms},'parms');
+        xASL_adm_SaveJSON(parms, JsonFiles{iJson});
     end
+    
 end
+
+xASL_TrackProgress(1, 1);
 fprintf('\n');
 
 

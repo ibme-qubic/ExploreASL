@@ -27,22 +27,24 @@ function xASL_adm_CleanUpBeforeRerun(AnalysisDir, iModule, bRemoveWMH, bAllSubje
 %              derivatives will be removed. This function performs the
 %              following steps:
 %   
-%              1) If a Population folder doesn't exist yet but dartel does, rename it
-%              2) Remove whole-study data files in AnalysisDir if bAllSubjects
-%              3) Remove lock files/folders for reprocessing
-%              4) Restore backupped _ORI (original) files
-%              5) Delete native space CAT12 temporary folders (always, independent of iModule)
-%              6) Remove native space files for iModule
-%              7) Remove standard space files for iModule
-%              8) Remove population module files
-%              9) Remove or clean up stored x-struct & QC file -> THIS HAS NO SESSION SUPPORT YET
+%              1. If a Population folder doesn't exist yet but dartel does, rename it
+%              2. Remove whole-study data files in AnalysisDir if bAllSubjects
+%              3. Remove lock files/folders for reprocessing
+%              4. Restore backupped _ORI (original) files
+%              5. Delete native space CAT12 temporary folders (always, independent of iModule)
+%              6. Remove native space files for iModule
+%              7. Remove standard space files for iModule
+%              8. Remove population module files
+%              9. Remove or clean up stored x-struct & QC file -> THIS HAS NO SESSION SUPPORT YET
 %
 % NB: still need to add xASL_module_func & xASL_module_dwi for EPAD
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
-% EXAMPLE for rerunning full study: xASL_adm_CleanupBeforeCompleteRerun('/PathToMyStudyAnalysisDir', [], 0, 1);
-% EXAMPLE for rerunning ASL & population modules of single subject: xASL_adm_CleanupBeforeCompleteRerun('/PathToMyStudyAnalysisDir', [2 3], 0, 0, 'Sub-001')
+% EXAMPLE:
+% - For rerunning full study: xASL_adm_CleanupBeforeCompleteRerun('/PathToMyStudyAnalysisDir', [], 0, 1);
+% - For rerunning ASL & population modules of single subject: xASL_adm_CleanupBeforeCompleteRerun('/PathToMyStudyAnalysisDir', [2 3], 0, 0, 'Sub-001')
+%
 % __________________________________
-% Copyright 2015-2019 ExploreASL
+% Copyright 2015-2020 ExploreASL
 
 
 try
@@ -174,10 +176,12 @@ try
         if ~isempty(CurrentDir)
             for iCurrent=1:length(CurrentDir)
                 xASL_TrackProgress(iCurrent, length(CurrentDir));
-                xASL_adm_DeleteFileList(CurrentDir{iCurrent}, '.*', true, [0 Inf]);
-                LockedDir = xASL_adm_GetFileList(CurrentDir{iCurrent}, 'locked', 'FPListRec', [0 Inf], true);
-                if isempty(LockedDir) % keep locked dir for mutex
-                    xASL_delete(CurrentDir{iCurrent});
+                if ~isempty(CurrentDir{iCurrent}) % bugfix, otherwise this deletes any files in the current folder (e.g. FLAIR/T1)
+                    xASL_adm_DeleteFileList(CurrentDir{iCurrent}, '.*', true, [0 Inf]);
+                    LockedDir = xASL_adm_GetFileList(CurrentDir{iCurrent}, 'locked', 'FPListRec', [0 Inf], true);
+                    if isempty(LockedDir) % keep locked dir for mutex
+                        xASL_delete(CurrentDir{iCurrent});
+                    end
                 end
             end
         end
@@ -211,8 +215,7 @@ try
     for iList=1:length(OriListTotal)
         xASL_TrackProgress(iList, length(OriListTotal));
         NonOriPath = strrep(OriListTotal{iList},'_ORI','');
-        xASL_delete(NonOriPath); % if the non-ori file existed, overwrite it
-        xASL_Move(OriListTotal{iList}, NonOriPath);
+        xASL_Move(OriListTotal{iList}, NonOriPath, 1, 0); % if the non-ori file existed, overwrite it
     end
     fprintf('\n');
 
@@ -241,7 +244,7 @@ try
         'T1_seg8\.mat$'};
 
     NativeSpaceFiles{2} = {'.*\.topup.*log' 'WADQC.*\.json' '.*(rep_|BeforeSpikeExclusion|despiked).*' '(VascularArtifact|xASL_qc|qcdc).*' 'rp_ASL4D\.txt' '(ASL4D|M0|.*_sn)\.mat'...
-        '(MaskASL|Mean_CBF_Template|mean_PWI_Clipped|PVgm|PVwm|PVcsf|FoV|M0_biasfield|(m|)mean_control|(mean|)PWI|SD|SNR|TopUp.*|(Mask_|Raw)Template|ATT_bias|B0|(Mean_|)(q|)CBF)(\.mat|\.nii|\.nii\.gz)$'...
+        '(MaskASL|Mean_CBF_Template|mean_PWI_Clipped|PVgm|PVwm|PVcsf|PVwmh|FoV|M0_biasfield|(m|)mean_control|(mean|)PWI|SD|SNR|TopUp.*|(Mask_|Raw)Template|ATT_bias|B0|(Mean_|)(q|)CBF)(\.mat|\.nii|\.nii\.gz)$'...
         '(SliceGradient(_extrapolated|)|slice_gradient|rgrey|PWI4D|y_ASL|Pseudo(CBF|Tissue)|rM0|Field|Unwarped|rASL4D)(\.mat|\.nii|\.nii\.gz)$'...
         '(.*beforeMoCo|CBF(|_Visual2DICOM)|(r|)temp.*|Mask(|Vascular)|mask)(\.mat|\.nii|\.nii\.gz)$'};
 

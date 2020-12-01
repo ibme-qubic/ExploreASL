@@ -2,7 +2,7 @@
 
 In this textfile we list the modifications. This concerns the following versions:
 SPM12, r7219
-CAT12, r1363
+CAT12, r1615
 LST, r2.0.15 
 
 Aside from the below list of code modifications, 
@@ -21,10 +21,17 @@ ADDED:
 Line 1: added the extra option bZigzag
 Line 117,137,158,181,571: added extra routines for the Zigzag
 
+*********************************************************************************************************
+COST FUNCTION MASKING FOR LESIONS
 
+DATE+NAME:2020-07-08, JP
+DESCRIPTION:
+hotfix minor bug in loading NIfTIs containing lesion masks in CAT12 #28
+FILE:
+cat_run_job.m at 577
 
 *********************************************************************************************************
-ENABLING LOW QUALITY MODE (FOR QUICK TESTING, RUN EVERYTHING BUT WITH LOWER ITERATIONS)
+ENABLING LOW QUALITY MODE (FOR QUICK TESTING, RUN EVERYTHING BUT WITH LOWER ITERATIONS AND/OR SPATIAL RESOLUTION)
 
 DATE+NAME:2018_12_29, HM
 DESCRIPTION:
@@ -35,13 +42,13 @@ External/SPMmodified/toolbox/cat12/cat_conf_extopts.m
 525     : Added xasl_quality as a valid input for CAT12
 725,727,762 : Added xasl_quality as a valid input for CAT12
 External/SPMmodified/toolbox/cat12/cat_main.m:
-21      : set xasl_quality on default to 1
-698     : if job.extopts.xasl_quality is on 0, run Geodesic Shooting on fewer iterations & lower resolution
+905      : set xasl_quality on default to 1
+207      : if job.extopts.xasl_quality is on 0, run Geodesic Shooting on fewer iterations & lower resolution
 1446    : if job.extopts.xasl_quality is on 0, run Geodesic Shooting on fewer iterations & lower resolution
 External/SPMmodified/toolbox/cat12/cat_run_job.m:
 126     : if job.extopts.xasl_quality is on 0, increase segmentation sampling distance from 3 to 6
-563     : if job.extopts.xasl_quality is on 0, decrease denoising strenght
-608     : if job.extopts.xasl_quality is on 0, increase segmentation voxel size to [1.5 1.5 1.5]
+215     : if job.extopts.xasl_quality is on 0, decrease denoising strenght
+302     : if job.extopts.xasl_quality is on 0, increase segmentation voxel size to [1.5 1.5 1.5]
 652 : if job.extopts.xasl_quality is on 0, increase segmentation sampling distance from 3 to 9
 
 
@@ -63,6 +70,14 @@ likewise if xasl_quality is set to 2 (when WMH_SEGM pre-exists), load ps_LST_lpa
 *********************************************************************************************************
 REDUCE CODE SIZE
 
+DATE+Name: 2020-07-04 HM
+DESCRIPTION:
+Disable previous CAT12 versions for increased stability
+FILE:
+cat_conf_output.m @ 394
+cat_conf_tools.m @ 135, 168
+tbx_cfg_cat.m @ 11, 103, 107, 112, 145, 239, 242, 245
+
 DATE+NAME:2019_11_13, HM
 DESCRIPTION:
 Remove unused SPM stuff to reduce data size ExploreASL/SPM compilation:
@@ -76,11 +91,12 @@ Remove unused SPM stuff to reduce data size ExploreASL/SPM compilation:
 /templates_surfaces
 /templates_surfaces_32k
 
-/templates_1.50mm:
+/templates_volumes:
 Removed atlases, partly
 left brainmask.nii, cat.nii,
 & all Template_._IXI555_MNI152_(GS|)\.nii
 SPM/toolbox/DARTEL/icbm152.nii
+cat12/templates_volumes/TPM_Age11.5.nii
 
 DATE+NAME:2019_11_13, HM
 DESCRIPTION:
@@ -103,6 +119,37 @@ Line 135 - removed 'spm_cfg_eeg'
 
 *********************************************************************************************************
 IMAGE PROCESSING IMPROVEMENT
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Remove feedback missing log-file (we don't use catlog_txt in xASL)
+FILE: 
+cat_run.m @ 459
+cat_run_job.m @ 79
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Add progress tracking
+FILE: 
+cat_vol_imcalc.m @ 207
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Add progress tracking
+FILE: 
+cat_vol_imcalc.m @ 207
+cat_main_reportfig.m @ 35, 91, 159, 231, 300, 400, 485, 594, 615, 617
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Improved feedback on ROI creation
+FILE: 
+cat_main_roi.m @ 50
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Improved feedback on PDF creation
+FILE: 
+cat_main_reportfig.m @ 34, 622
+
+DATE+NAME:2020_07_01, HM
+DESCRIPTION: Save CSF as well in newer CAT12 version
+FILE: cat_main.m @ 674
 
 DATE+NAME:2019_11_11, HM
 DESCRIPTION:
@@ -129,32 +176,27 @@ Some bugfixes:
 FILE:
 cat_main.m:
 set NaNs to zeroes:
-31: for nT1.nii
+915: for nT1.nii
 1456: for edges of Yy transformation fields
 1476: for edges of trans.warped.y transformation fields
-
-DATE+NAME:2019_03_28, Jan Petr
-DESCRIPTION:
-Added rounding to inversions in CAT12 to avoid having reproducibility issues between OS and Matlab versions
-FILE:
-cat_main_registration.m
-Added round(~,12) to lines 323, 333, 340, 554, 558, 686, 860 -> replaced by HM by xASL_round for backward compatibility
 
 DATE+NAME:2019_03_27, Jan Petr
 DESCRIPTION:
 Enabled save of CSF as c3T1.nii from CAT12
 FILE:
-External/SPMmodified/toolbox/cat12/tbx_cfg_cat.m
-529 - added the CSF option for non-expert mode
 External/SPMmodified/toolbox/cat12/cat_conf_opts.m
 297     : activated the SAMP option for non-expert mode
 
+DATE+NAME:2020_05_26, Jan Petr
+DESCRIPTION:
+Remove the link to the older versions like 1173, 1173plus, ,1445, 1585
+FILE:
+External/SPMmodified/toolbox/cat12/tbx_cfg_cat.m
+
+
 DATE+NAME:2019_02_08, Jan Petr
 DESCRIPTION:
-Fixed the option for using and removing lesions from the CAT12 segmentation. Now the lesions are merged and prepared beforehand and the filename
-is passed to CAT, where this is loaded and all transformation steps are applied to it directly in CAT.
-Plus, CAT has some extra routines for working with the lesions, some of them were bypassed, because they were not working efficiently, when
-the lesion was set to NaN in the T1w image.
+Fixed the option for using and removing lesions from the CAT12 segmentation. Now the lesions are merged and prepared beforehand and the filename is passed to CAT, where this is loaded and all transformation steps are applied to it directly in CAT. Plus, CAT has some extra routines for working with the lesions, some of them were bypassed, because they were not working efficiently, when the lesion was set to NaN in the T1w image.
 FILE:
 External/SPMmodified/toolbox/cat12/cat_conf_extopts.m
 537     : Added xasl_lesion as a valid input for CAT12 containing the name of the merged lesion file
@@ -163,8 +205,9 @@ External/SPMmodified/toolbox/cat12/cat_defaults.m
 197: Added the default value '' for the xasl_lesion
 External/SPMmodified/toolbox/cat12/cat_main_registration.m
 407,638: The resliced lesion - ls - can contain NaNs due to reslicing - these must be removed before the mask is applied.
+External/SPMmodified/toolbox/cat12/cat_main_updateSPM.m
+88 - We save our original lesion as LesionFull for later use, because the other lesion gets stripped (and this does not work when T1w has the lesion set to NaN by ExploreASL).
 External/SPMmodified/toolbox/cat12/cat_main.m
-228 - We save our original lesion as LesionFull for later use, because the other lesion gets stripped (and this does not work when T1w has the lesion set to NaN by ExploreASL).
 708 - calling the registration with the Full Lesion, that is not stripped (as the stripped one does not work when NaNs were set to T1w - because the WM segmentation is then missing there).
 1390 - removing the lesion also when the xasl_lesion parameter was set. Few lines below - need to add apply the same transformations also to the non-stripped lesion. Do not divide it by
        255, as this makes it virtually unusable - no idea why CAT does that.
@@ -184,6 +227,36 @@ External/SPMmodified/toolbox/cat12/cat_conf_extopts.m
 External/SPMmodified/toolbox/cat12/cat_main_registration.m
 459: Added a call to function xASL_wrp_DARTELSaveReg that saves the current DARTEL registration flow field to a file - this function is ripped out of this CAT file
 794: Added a call to function xASL_wrp_GSSaveReg that saves the current GS registration flow field to a file (only for the full resolution one) - this function is ripped out of this CAT file
+
+
+
+*********************************************************************************************************
+IMAGE PROCESSING REPRODUCIBILITY
+
+DATE+NAME:2020_07_03, Jan Petr
+DESCRIPTION:
+Reseeding the random number generator for certain functions to make sure they run reproducibly.
+Removing the legacy function for that and using RNG instead. Rather than using a 'default' random number generator that might differ
+potentially between Matlab version, we have used 'twister' everywhere.
+FILEs:
+External/SPMmodified/spm_coreg.m - line 291
+External/SPMmodified/spm_maff8.m line 79
+External/SPMmodified/spm_preproc.m line 132
+External/SPMmodified/spm_preproc8.m line 100
+External/SPMmodified/spm_realign.m line 236
+External/SPMmodified/toolbox/LST/ps_LST_spm_coreg.m line 287
+External/SPMmodified/toolbox/OldNorm/spm_affreg.m line 94
+External/SPMmodified/toolbox/cat12/cat_run_job.m lin 733 - switch off turning of the warnings for this reseeding reasons
+External/SPMmodified/toolbox/cat12/cat_spm_affreg.m line 94
+External/SPMmodified/toolbox/cat12/cat_spm_preproc8.m line 110
+External/SPMmodified/toolbox/cat12/cat_vol_sanlm.m line 85
+
+DATE+NAME:2019_03_28, Jan Petr
+DESCRIPTION:
+Added rounding to inversions in CAT12 to avoid having reproducibility issues between OS and Matlab versions
+FILE:
+cat_main_registration.m
+Added round(~,12) to lines 323, 333, 340, 554, 558, 686, 860 -> replaced by HM by xASL_round for backward compatibility
 
 DATE+Name: 2018-12-11 JP
 DESCRIPTION:
@@ -232,26 +305,22 @@ spm_smoothto8bit.m 57
 External/SPMmodified/toolbox/OldSeg/spm_maff.m line 106
 toolbox/cat12/cat_vol_correct_slice_scaling line 425
 
-
-
 *********************************************************************************************************
-OTHER CODE HACKS
+BIDS/JSON
 
-
-DATE+NAME:2020-03-29 HM
+DATE+NAME:2020_08_11, JP
 DESCRIPTION:
-288 cosmetic hack, for xASL_TrackProgress
-210 improvement xASL_adm_CreateDir instead of mkdir
+Error in the NIfTI header. 3D NIfTI files (dim[0] == 3) that have the size of the fourth dimension NT==1 (dim[4] == 1), but have TR defined (pixdim[4] ~= 1)
+do not pass through the BIDS validator. The SPM NIfTI writing function needs to be modified to save dim[4]==4 in this case even though the size of the fourth dimension is 1.
 FILE:
-ps_LST_lpa.m at 210 & 288
+External/SPMmodified/@nifti/private/write_hdr_raw.m at line 20
 
-DATE+NAME:2020-01-06 JP
+DATE+NAME:2020_04_29, HM
 DESCRIPTION:
-Fixing the cat_vol_qa QA so that it works with FLAIR images as well.
-replaced "diff(T1th(2:3))" with "abs(diff(T1th(2:3)))" because this is positive in T1,
-but it was negative in FLAIR and for FLAIR this ruined the ROIs
+Instead of error for an imaginary number, put it in a string
 FILE:
-cat_vol_qa - Line 678
+spm_jsonwrite.m at line 198
+
 
 DATE+NAME:2020_01_17, JP
 DESCRIPTION:
@@ -265,6 +334,38 @@ Edited the jsmn.c so that spm_jsonread.c can read JSONs that have empty string a
 FILE:
 jsmn.c at line 269
 
+
+*********************************************************************************************************
+OTHER CODE HACKS
+
+DATE+NAME:2020-09-02 MS (issue #114)
+DESCRIPTION:
+Make Matlab version information robust for both deployed and undeployed mode (bugfix)
+FILE:
+cat_io_report.m, 176
+cat_vol_qa.m, 507, 574
+
+DATE+NAME:2020-07-06 HM (issue #1)
+DESCRIPTION:
+Allow running CAT12 without JVM
+FILE:
+cat_io_send_to_server at 18
+cat_run at 466, 860
+cat_main at 884
+
+DATE+NAME:2020-03-29 HM
+DESCRIPTION:
+288 cosmetic hack, for xASL_TrackProgress
+210 improvement xASL_adm_CreateDir instead of mkdir
+FILE:
+ps_LST_lpa.m at 210 & 288
+
+DATE+NAME:2020-05-26 JP
+DESCRIPTION:
+Small fix for the boundary conditions
+FILE:
+replace round with ceil at cat_vol_qa - Line 627
+
 DATE+NAME:2019_10_20, HM
 DESCRIPTION:
 Hack to avoid warning of absence DEM toolbox
@@ -276,12 +377,6 @@ DESCRIPTION:
 Hack to insert comments that explain WMH volumetrics
 FILE:
 ps_LST_tlv @ 164-174
-
-DATE+NAME:2019_05_06, HM
-DESCRIPTION:
-Disabled version-checking part (quick&dirty)
-FILE:
-cat_io_xml @ 327, 946 (this version-checking part crashed)
 
 DATE+Name: 2018-09-14 JP
 DESCRIPTION:
@@ -366,9 +461,6 @@ DESCRIPTION:
 
 
 
-
-
-
 *********************************************************************************************************
 MATLAB BACKWARDS COMPATIBILITY
 
@@ -385,7 +477,25 @@ cat_main_register.m, lines 341, 554, 560, 687, 861, 865, 1168
 
 
 *********************************************************************************************************
-REDUCE GRAPHICAL OUTPUT & NON-SPECIFIC WARNINGS. ADD TRACKING PROGRESS xASL_TrackProgress
+REDUCE GRAPHICAL OUTPUT & NON-SPECIFIC WARNINGS. ADD TRACKING PROGRESS AT COMMAND LINE: xASL_TrackProgress
+
+DATE+NAME:2020_06_22, HM
+DESCRIPTION:
+No need to mention subfolders CAT12, xASL moves files from here
+FILE:
+cat_main_reportcmd @ 33
+
+DATE+NAME:2020_06_22, HM
+DESCRIPTION:
+Skip SPM progress bar visualization (use xASL_TrackProgress for CLI progress instead)
+FILE:
+spm_progress_bar @ 26
+
+DATE+NAME:2020_06_22, HM
+DESCRIPTION:
+Print instead of warn when nojvm for storing XML
+FILE:
+cat_io_xml @ 51
 
 DATE+NAME:2019_10_13, HM
 DESCRIPTION:
@@ -470,7 +580,8 @@ Handle screen messages: reduces nr of messages, more ExploreASL-specific, replac
 FILE:
 cat_run_job.m & cat_run_job1070 (163, 181)
 cat_main_gintnorm.m (388)
-cat_main.m (315, 332, 488, 540, 566, 584, 598, 608, 622, 639, 1035, 1903, 2652, 2668, 2690)
+cat_main_updateSPM.m (303-323)
+cat_main.m (315, 332, 488,  1035, 1903, 2652, 2668, 2690)
 cat_spm_preproc_write8.m & spm_preproc_write8.m (190, 192, 291, 293, 304, 306, 609, 611, 627, 629, 667)
 spm_proc8 (196)
 

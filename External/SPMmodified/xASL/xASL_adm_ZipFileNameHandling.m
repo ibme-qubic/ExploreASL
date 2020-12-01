@@ -45,17 +45,30 @@ function [srcOut, dstOut] = xASL_adm_ZipFileNameHandling(srcIn, dstIn, bDeleteOl
 	% Checks if the source concerns a .nii or .nii.gz
     if ~isempty(findstr(srcExt,'.nii'))
 
-        srcFileNII     = fullfile(srcPath,[srcFile '.nii']);
-        srcFileGZ      = fullfile(srcPath,[srcFile '.nii.gz']);
-
+        srcFileNII = fullfile(srcPath,[srcFile '.nii']);
+        srcFileGZ = fullfile(srcPath,[srcFile '.nii.gz']);
+        srcFileGZtmp = fullfile(srcPath,[srcFile '.nii.gz.tmp']);
+        
+        % If the temporary file also exists, delete it first
+        if exist(srcFileGZtmp, 'dir')
+			try
+                delete(fullfile(srcFileGZtmp, '*'));
+                rmdir(srcFileGZtmp);
+            catch ME
+                warning('Something went wrong when trying to delete existing temporary unzipped folder');
+                fprintf('The unzipping may have crashed in a previous run, try deleting manually:\n');
+                warning(ME.message);
+            end
+        end
+        
 		% If both input files exist, then try to delete one of them
 		if exist(srcFileNII,'file') && exist(srcFileGZ,'file')
 			% Unzip the GZ file to a temporary directory
-			gunzip(srcFileGZ, [srcFileGZ '.tmp']);
+			gunzip(srcFileGZ, srcFileGZtmp);
 
             % Load both the original and new unzipped
             % If one is corrupt, replace it by the other
-            GZcounterpart = fullfile([srcFileGZ '.tmp'],[srcFile '.nii']);
+            GZcounterpart = fullfile(srcFileGZtmp, [srcFile '.nii']);
             try % first we check if the .nii is corrupt
                 srcDatOrig = nifti(srcFileNII);
                 srcImOrig = xASL_io_Nifti2Im(srcDatOrig);
@@ -66,8 +79,14 @@ function [srcOut, dstOut] = xASL_adm_ZipFileNameHandling(srcIn, dstIn, bDeleteOl
                 fprintf('%s\n', 'Trying to replace by GZ counterpart');
                 clear srcDatOrig srcImOrig
                 xASL_SysCopy(GZcounterpart, srcFileNII, true);
-                srcDatOrig = nifti(srcFileNII);
-                srcImOrig = xASL_io_Nifti2Im(srcDatOrig);
+                try
+                    srcDatOrig = nifti(srcFileNII);
+                    srcImOrig = xASL_io_Nifti2Im(srcDatOrig);
+                catch ME2
+                    warning(ME2.message);
+                    fprintf('%s\n', 'Both NIfTIs are corrupt, skipping');
+                    return;
+                end
             end
             try % secondly we check if the .nii.gz is corrupt
                 srcDatZipd = nifti(GZcounterpart);
@@ -78,13 +97,19 @@ function [srcOut, dstOut] = xASL_adm_ZipFileNameHandling(srcIn, dstIn, bDeleteOl
                 fprintf('%s\n', ['Corrupt NIfTI: ' GZcounterpart]);
                 clear srcDatZipd srcImZipd
                 xASL_SysCopy(srcFileNII, GZcounterpart, true);
-                srcDatZipd = nifti(GZcounterpart);
-                srcImZipd = xASL_io_Nifti2Im(srcDatZipd);
+                try
+                    srcDatZipd = nifti(GZcounterpart);
+                    srcImZipd = xASL_io_Nifti2Im(srcDatZipd);
+                catch ME2
+                    warning(ME2.message);
+                    fprintf('%s\n', 'Both NIfTIs are corrupt, skipping');
+                    return;
+                end                    
             end
 
 			% Delete the temporary file
-			delete(fullfile([srcFileGZ '.tmp'],'*'));
-			rmdir([srcFileGZ '.tmp']);
+			delete(fullfile(srcFileGZtmp, '*'));
+			rmdir(srcFileGZtmp);
 
 			% Compare files:
             % First we compare the NIfTI header inside the hrd subfield
@@ -100,7 +125,7 @@ function [srcOut, dstOut] = xASL_adm_ZipFileNameHandling(srcIn, dstIn, bDeleteOl
             end
             if ~isempty(DifferIn)
                 fprintf('.nii & .nii.gz counterparts differed in:\n');
-                DifferIn
+                fprintf('%s\n', xASL_num2str(DifferIn));
             end
             
             % Second, we compare the image matrices
@@ -152,16 +177,16 @@ function [srcOut, dstOut] = xASL_adm_ZipFileNameHandling(srcIn, dstIn, bDeleteOl
 
         % Now only if .nii or .nii.gz doesnt exist, use the existing one
         if ~exist(srcFileNII,'file') && exist(srcFileGZ,'file')
-            srcOut        = srcFileGZ;
-            srcExt          = '.nii.gz';
+            srcOut = srcFileGZ;
+            srcExt = '.nii.gz';
         elseif ~exist(srcFileGZ,'file') && exist(srcFileNII,'file')
-            srcOut       = srcFileNII;
-            srcExt          = '.nii';
+            srcOut = srcFileNII;
+            srcExt = '.nii';
         end
 
         % Here, to keep it simple, we force DestExt to be the same as SrcExt
         % This avoids unzipping/zipping, which doesnt have to be dealth with when copying
-        dstOut       = fullfile(dstPath,[dstFile, srcExt]);
+        dstOut = fullfile(dstPath,[dstFile, srcExt]);
     end
 
 end

@@ -43,7 +43,7 @@ if xASL_exist(x.P.Path_c3T1, 'file')
     OUTname{end+1} = x.P.Pop_Path_rc3T1;
 end            
 
-if xASL_exist(x.P.Path_FLAIR,' file')
+if xASL_exist(x.P.Path_FLAIR, 'file')
     INname{end+1} = x.P.Path_FLAIR;
     OUTname{end+1} = x.P.Pop_Path_rFLAIR;
 end
@@ -55,14 +55,17 @@ xASL_spm_deformations(x, INname, OUTname);
 % Lesion probability maps (do linear interpolation to avoid negative edge effects)
 xASL_spm_deformations(x, x.P.Path_WMH_SEGM, x.P.Pop_Path_rWMH_SEGM, 1);
 
-[INname, OUTname] = xASL_wrp_LesionResliceList(x);
+[INname, OUTname] = xASL_adm_LesionResliceList(x);
 
 if ~isempty(INname) && ~isempty(OUTname)
     % First dilate ROIs, if they were e.g. used for annotation (single voxel only)
     % Do linear interpolation to avoid negative edge effects
-    for iL=1:length(INname)
-        xASL_im_dilateROI(INname{iL});
+    fprintf('Dilating lesions:   ')
+    for iLesion=1:length(INname)
+        xASL_TrackProgress(iLesion, length(INname));
+        xASL_im_dilateROI(INname{iLesion});
     end
+    fprintf('\n');
     xASL_spm_deformations(x,INname, OUTname,1);
 end
 

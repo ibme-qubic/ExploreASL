@@ -25,20 +25,21 @@ function xASL_wrp_LinearReg_T1w2MNI(x, bAutoACPC)
 %
 % 2019-05-02 HJM
 
-
+% Input check
 if nargin<2 || isempty(bAutoACPC)
     bAutoACPC = true;
 end
 
-
+% Check paths
+necessaryPaths = isfield(x,'SPMDIR') && isfield(x.P,'Path_FLAIR') && isfield(x.P,'Path_WMH_SEGM') && ...
+                 isfield(x.P,'Path_ASL4D') && isfield(x.P,'Path_M0') && isfield(x.P,'Path_ASL4D_RevPE');
+if ~necessaryPaths
+    warning('Seemingly you are using xASL_wrp_LinearReg_T1w2MNI without defining all necessary paths...');
+end
 
 %% ---------------------------------------------------------------------------------------------------
 %% 1) Restore the orientation matrix of all images, in case we perform a re-run: but only when we don't have lesion maps
-
-Lesion_T1_list = xASL_adm_GetFileList(x.SUBJECTDIR, ['^Lesion_' x.P.STRUCT '_\d*\.(nii|nii\.gz)$'], 'FPList', [0 Inf]);
-Lesion_FLAIR_list = xASL_adm_GetFileList(x.SUBJECTDIR, ['^Lesion_' x.P.FLAIR '_\d*\.(nii|nii\.gz)$'], 'FPList', [0 Inf]);
-
-
+Lesion_ROI_list = xASL_adm_GetFileList(x.SUBJECTDIR, ['^(Lesion|ROI)_(' x.P.STRUCT '|' x.P.FLAIR ')_\d*\.nii$'], 'FPList', [0 Inf]);
 
 %% ---------------------------------------------------------------------------------------------------
 %% 2)Obtain lists of paths
@@ -50,13 +51,9 @@ OtherList{1,1} = x.P.Path_FLAIR;
 OtherList{end+1,1} = x.P.Path_WMH_SEGM;
 
 % Add lesion masks to the registration list
-for iS=1:length(Lesion_T1_list)
-    OtherList{end+1,1} = Lesion_T1_list{iS};
+for iS=1:length(Lesion_ROI_list)
+    OtherList{end+1,1} = Lesion_ROI_list{iS};
 end
-for iS=1:length(Lesion_FLAIR_list)
-    OtherList{end+1,1} = Lesion_FLAIR_list{iS};
-end    
-
 % Add ASL images to the registration list
 for iSess = 1:x.nSessions
     OtherList{end+1,1} = x.P.Path_ASL4D;
@@ -68,7 +65,7 @@ for iSess = 1:x.nSessions
     for iOther=1:length(OtherScanTypes)
         DirOther = fullfile(x.SUBJECTDIR, OtherScanTypes{iOther});
         if exist(DirOther,'dir')
-            Path_Other = xASL_adm_GetFileList(DirOther, ['^.*' OtherScanTypes{iOther} '.*\.nii$'],'FPList',[0 Inf]); % any DWI
+            Path_Other = xASL_adm_GetFileList(DirOther, '^(?!y_).*\.nii$', 'FPList', [0 Inf]); % any DWI or func NIfTI (quick & dirty)
             for iScan=1:length(Path_Other)
                 OtherList{end+1,1} = Path_Other{iScan};
             end

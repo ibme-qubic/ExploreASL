@@ -11,8 +11,8 @@ function xASL_wrp_CreateAnalysisMask(x)
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
 % DESCRIPTION: This function creates an analysis mask with the following steps:
 %              0) Create FoV mask (native & MNI spaces)
-%              1) Detect negative vascular signal (native & MNI spaces)
-%              2) Detect peak vascular signal (native & MNI spaces)
+%              1) Detect negative vascular signal (native & MNI spaces, within pGM>0.5)
+%              2) Detect peak vascular signal (native & MNI spaces, within pGM==80% percentile on ASL image)
 %              3) Brainmasking & FoV-masking (A) native & B) MNI spaces)
 %                 - Add WM vascular parts back to the mask (defined as pWM>0.8) & remove extracranial signal
 %                   In the WM, negative or peak signal is more expected from
@@ -44,7 +44,7 @@ FoVim = xASL_io_Nifti2Im(x.P.Path_CBF);
 FoVim(:) = 1;
 xASL_io_SaveNifti(x.P.Path_CBF, x.P.Path_FoV, FoVim, 8, false);
 
-if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % BACKWARDS COMPATIBILITY, CAN BE REMOVED
+if exist(x.P.Path_mean_PWI_Clipped_sn_mat, 'file') % Backwards compatability, and also needed for the Affine+DCT co-registration of ASL-T1w
     AffineTransfPath = x.P.Path_mean_PWI_Clipped_sn_mat;
 else
     AffineTransfPath = [];
@@ -53,16 +53,18 @@ end
 xASL_spm_deformations(x, x.P.Path_FoV, x.P.Pop_Path_FoV, 0, [], AffineTransfPath, x.P.Path_y_ASL);
 
 %% Deal with different readouts
-DoSusceptibility = true;
-if strcmp(lower(x.Sequence),'2d_epi')
-    Path_Template = fullfile(x.D.MapsDir,'Templates','Susceptibility_pSignal_2D_EPI.nii');
-    ClipThresholdValue = 3; % 3 MAD above median
-elseif strcmp(lower(x.Sequence),'3d_grase')
-    Path_Template = fullfile(x.D.MapsDir,'Templates','Susceptibility_pSignal_3D_GRASE.nii');
-    ClipThresholdValue = 3; % 3 MAD above median
-else % for 3D spiral: don't mask susceptibility artifacts
-    DoSusceptibility = false;
-    ClipThresholdValue = 5; % more homogeneous image
+switch lower(x.Sequence)
+    case '2d_epi'
+        Path_Template = fullfile(x.D.MapsDir,'Templates','Susceptibility_pSignal_2D_EPI.nii');
+        ClipThresholdValue = 3; % 3 MAD above median
+        DoSusceptibility = true;
+    case '3d_grase'
+        Path_Template = fullfile(x.D.MapsDir,'Templates','Susceptibility_pSignal_3D_GRASE.nii');
+        ClipThresholdValue = 3; % 3 MAD above median
+        DoSusceptibility = true;
+    otherwise
+        DoSusceptibility = false;
+        ClipThresholdValue = 5; % more homogeneous image
 end
 
 %% 1) Negative vascular signal
@@ -111,17 +113,36 @@ xASL_io_SaveNifti(x.P.Pop_Path_qCBF, x.P.Pop_Path_MaskVascular, MaskVascularMNI,
 
 %% 5) Create susceptibility mask in standard space
 if DoSusceptibility
-	if xASL_exist(x.P.Pop_Path_mean_control)
+	
+    if xASL_exist(x.P.Pop_Path_noSmooth_M0)
+        ControlIm = xASL_io_Nifti2Im(x.P.Pop_Path_noSmooth_M0); % load M0 image
+    elseif xASL_exist(x.P.Pop_Path_mean_control)
 		ControlIm = xASL_io_Nifti2Im(x.P.Pop_Path_mean_control); % load control image
-		ControlIm = xASL_im_ndnanfilter(ControlIm, 'gauss',[2 2 2]);
 	else
 		ControlIm = 1;
-        warning('Please check your susceptibility mask(s), we could only create it with the PWI, no control image available');
-	end
+        warning('Please check your susceptibility mask(s), we could only create it with the PWI, no M0 or control image available');
+    end
+    
+     if prod(size(ControlIm))~=1
+         ControlIm = xASL_im_ndnanfilter(ControlIm, 'gauss',[2 2 2]);
+     end
+    
      PWIIm = xASL_io_Nifti2Im(x.P.Pop_Path_PWI); % load PWI image
      PWIIm = xASL_im_ndnanfilter(PWIIm, 'gauss',[4 4 4]);
      pTemplate = xASL_io_Nifti2Im(Path_Template); % load probability map
-     MaskSuscept = pTemplate<0.95*max(pTemplate(:)); % create susceptibility mask
+     
+     % Change pTemplate based on sequence (thanks to Khazar for checking
+     % this for 3D GRASE in the BioFinder study)
+     switch lower(x.Sequence)
+         case '2d_epi'
+             SusceptibilityThreshold = 0.95;
+         case '3d_grase'
+             SusceptibilityThreshold = 0.6;
+         otherwise
+             warning('Unknown sequence for susceptibility thresholding, skipping');
+             SusceptibilityThreshold = 1;
+     end
+	 MaskSuscept = pTemplate<SusceptibilityThreshold*max(pTemplate(:)); % create susceptibility mask
 
      MixedIm = pTemplate.^0.25.*ControlIm.*PWIIm; % combine images into single probability map
      % we want to limit the influence of the template a bit, which is why

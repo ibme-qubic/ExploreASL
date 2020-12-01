@@ -50,8 +50,13 @@ if ~strcmp(Fext,'dat') && isempty(findstr(Fext,'nii'))
          x.S.InputAtlasPath = fullfile(Fpath,[Ffile '.nii']);
     else
          warning('incorrect atlas selected, please try again');
+         fprintf('%s\n', x.S.InputAtlasPath);
          return;
     end
+elseif ~xASL_exist(x.S.InputAtlasPath, 'file')
+     warning('incorrect atlas selected, please try again');
+     fprintf('%s\n', x.S.InputAtlasPath);
+     return;
 end
 
 SumMask = sum(x.WBmask(:));
@@ -59,7 +64,6 @@ SumMask = sum(x.WBmask(:));
 if strcmp(x.S.InputAtlasPath(end-2:end),'.gz')
     x.S.InputAtlasPath = x.S.InputAtlasPath(1:end-3); % allow .gz or .nii input
 end
-
 
 %% 1) Load atlas ROI names
 x.S.ROInamesPath = fullfile(Fpath,[Ffile '.tsv']);
@@ -93,7 +97,7 @@ if ~exist(x.S.ROInamesPath,'file')
     end
 end
 
-if isfield(x.S,'ROInamesPath') % open TSV file
+if isfield(x.S,'ROInamesPath') && exist(x.S.ROInamesPath, 'file') % open TSV file
     fclose all;
     FileID = fopen(x.S.ROInamesPath);
 
@@ -190,13 +194,19 @@ if ~AtlasIsColumns
         xASL_TrackProgress(iL,size(InputAtlasIM,4));
         x.S.InputMasks(:,iL,:) = xASL_im_IM2Column(InputAtlasIM(:,:,:,iL,[1:size(InputAtlasIM,5)]),x.WBmask);
     end
+    fprintf('\n');
 else
     x.S.InputMasks = InputAtlasIM;
 end
 
 %% Create dummy ROI names, if we don't have them
 if ~isfield(x.S,'NamesROI')
-    for iR=1:max(InputAtlasIM(:))
+    if size(InputAtlasIM,4)>1
+        maxROI = size(InputAtlasIM,4);
+    else
+        maxROI = max(InputAtlasIM(:));
+    end
+    for iR=1:maxROI
         x.S.NamesROI{iR} = ['ROI_' num2str(iR)]; % default ROIs
     end
 end
@@ -208,10 +218,10 @@ if x.S.SubjectWiseVisualization
     % can be improved later)
     for iSub=1:size(x.S.InputMasks,3)
         xASL_TrackProgress(iSub,size(x.S.InputMasks,3));
-        LabelIM = xASL_im_TransformData2View(xASL_Convert4D_3D_atlas(xASL_im_Column2IM(x.S.InputMasks(:,:,iSub),x.WBmask)),x);
-        DataIM = xASL_im_TransformData2View(x.skull.*xASL_io_Nifti2Im(fullfile(x.D.TemplateDir,'rT1.nii')),x);
+        LabelIM = xASL_vis_TransformData2View(xASL_Convert4D_3D_atlas(xASL_im_Column2IM(x.S.InputMasks(:,:,iSub),x.WBmask)),x);
+        DataIM = xASL_vis_TransformData2View(x.skull.*xASL_io_Nifti2Im(fullfile(x.D.TemplateDir,'rT1.nii')),x);
         CombiIM = xASL_im_ProjectLabelsOverData(DataIM,LabelIM,x);
-        xASL_imwrite(CombiIM, fullfile(x.S.CheckMasksDir,[Ffile '_Subj_' num2str(iSub) '.jpg']));
+        xASL_vis_Imwrite(CombiIM, fullfile(x.S.CheckMasksDir,[Ffile '_Subj_' num2str(iSub) '.jpg']));
     end
 end
 

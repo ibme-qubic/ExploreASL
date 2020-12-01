@@ -9,15 +9,18 @@ function [parms, pathDcmDictOut] = xASL_adm_Dicom2Parms(imPar, inp, parmsfile, d
 %        dcmExtFilter (STR) - wildcards specifying the allowed extensions for the RAW files
 %        bUseDCMTK (BOOL)   - if yes, then use DCMTK instead of dicominfo
 %        pathDcmDictIn (STR)- path to the dicom dictionary in case DCMTK fails and DICOMINFO is used
+%
 % OUTPUT:
 %        parms              - structure containing the parsed parameters
 %        pathDcmDictOut     - if dicom dict for dicominfo is initialized then clear this path, otherwise return unchanged pathDcmDictIn
+%
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
-% DESCRIPTION:
-%        The function goes through the INP files, reads the DICOM or PAR/REC files and parses their headers.
-%        It extracts the DICOM parameters important for ASL, makes sure they are in the correct format, if missing then 
-%        replaces with default value, it also checks if the parameters are consistent across DICOM files for a single sequence.
+% DESCRIPTION:  The function goes through the {{INP}} files, reads the {{DICOM}} or {{PAR/REC}} files and parses their headers.
+%               It extracts the {{DICOM}} parameters important for ASL, makes sure they are in the correct format, if missing then 
+%               replaces with default value, it also checks if the parameters are consistent across {{DICOM}} files for a single sequence.
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
+% EXAMPLE:  ...
+%
 % REFERENCES:
 % __________________________________
 % Copyright @ 2015-2019 ExploreASL
@@ -181,7 +184,7 @@ function [parms, pathDcmDictOut] = xASL_adm_Dicom2Parms(imPar, inp, parmsfile, d
 			
 			% Deal with enhanced DICOM format imported through DICOMINFO and not DCMTK
             if bEnhancedMR && ~TryDicominfo
-                warning('Enhanced DICOM detected, but no dicominfo selected, skipping obtaining parameters');
+                %warning('Enhanced DICOM detected, but no dicominfo selected, skipping obtaining parameters');
             elseif bEnhancedMR && TryDicominfo
                 % for simplicity, take the first value from the enhanced
                 % sequences and store them in the temp-struct as if it is a
@@ -362,7 +365,7 @@ function [parms, pathDcmDictOut] = xASL_adm_Dicom2Parms(imPar, inp, parmsfile, d
                     
                     EffectiveEchoSpacingPhilips = parms.MRSeriesWaterFatShift/(434.215 * (parms.MRSeriesEPIFactor+1));
                     parms.TotalReadoutTime = EffectiveEchoSpacingPhilips*(parms.MRSeriesEPIFactor-1);
-                    parms.EffectiveEchoSpacing = parms.TotalReadoutTime/(parms.AcquisitionMatrix-1);
+                    parms.EffectiveEchoSpacing = parms.TotalReadoutTime/(parms.AcquisitionMatrix(1)-1);
                     parms = rmfield(parms, {'MRSeriesWaterFatShift' 'MRSeriesEPIFactor'});
                 end
             case 'Siemens'
@@ -400,12 +403,28 @@ function [parms, pathDcmDictOut] = xASL_adm_Dicom2Parms(imPar, inp, parmsfile, d
 			parms.RescaleIntercept      = parms.RescaleIntercept(isfinite(parms.RescaleIntercept));
 		end
 		
-		if  (length(parms.MRScaleSlope)>1 && parms.MRScaleSlope(2)~=1) || length(parms.RescaleSlopeOriginal)>1 || length(parms.RescaleIntercept)>1
-			if  isASL % quickfix, see above
-				warning('xASL_adm_Dicom2Parms: Multiple scale slopes exist for a single scan!');
-                warning(['Could not perform dicom2nii conversion for ' parmsfile]);
-                return;
+		% In case more than one value is given, then keep only the value that is not equal to 1. Or set to 1 if all are 1
+		parmNameToCheck = {'MRScaleSlope','RescaleSlopeOriginal','RescaleSlope'};
+		for parmNameInd = 1:length(parmNameToCheck)
+			parmName = parmNameToCheck{parmNameInd};
+			if  (length(parms.(parmName))>1)
+				indNonOne = find(parms.(parmName)~=1);
+				if isempty(indNonOne)
+					parms.(parmName) = 1;
+				else
+					parms.(parmName) = parms.(parmName)(indNonOne);
+				end
 			end
+		end
+				
+		% In case multiple different scale slopes are given, report a warning
+		if length(parms.MRScaleSlope)>1  || length(parms.RescaleSlopeOriginal)>1 || length(parms.RescaleIntercept)>1 || length(parms.RescaleSlope)>1
+			% Do not save them and thus rely on the parameters from dcm2nii
+			warning('xASL_adm_Dicom2Parms: Multiple scale slopes exist for a single scan!');
+			parms = rmfield(parms,'MRScaleSlope');
+			parms = rmfield(parms,'RescaleSlope');
+			parms = rmfield(parms,'RescaleSlopeOriginal');
+			parms = rmfield(parms,'RescaleIntercept');
 		end
 		
 		if ~isempty(parmsfile)

@@ -190,6 +190,7 @@ Ym   = zeros(d(1:3),'single');
 fprintf('%s','Working on planes...   '); % ExploreASL hack
 for z=1:length(x3)
     xASL_TrackProgress(z,length(x3)); % ExploreASL hack
+
     % Bias corrected image
     cr = cell(1,N);
     for n=1:N
@@ -664,5 +665,4 @@ for i=1:size(b,3)
         P(:,:,i,k1) = uint8(round(slices{k1}./tot*255));
     end 
 end
-fprintf('\n'); % ExploreASL hack
 spm_progress_bar('Clear');

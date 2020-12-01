@@ -38,7 +38,7 @@ function [result, x] = xASL_module_DARTEL(x)
 
 %% -------------------------------------------------------------------------------------------------------
 %% Administration
-x = xASL_init_GenericMutexModules(x, 'DARTEL'); % starts mutex locking process to ensure that everything will run only once
+x = xASL_init_InitializeMutex(x, 'DARTEL'); % starts mutex locking process to ensure that everything will run only once
 x.IMAGES_CREATE     = {['rc1' x.P.STRUCT] ['rc2' x.P.STRUCT]};
 x.ESTIMATE          = true; % 1 = estimate DARTEL flowfields, if not already processed. 0 = skip estimating
 x.WARP              = true; % 1 = apply DARTEL, creating warped maps; 0 = skip warping
@@ -126,7 +126,7 @@ for iS=1:x.nSubjects
     % Here, check longitudinal registration.
     % If we run longitudinal registration, only use first volumes
     x.P.SubjectID = x.SUBJECTS{iS};
-    [~, ~, ~, IsSubject, ~, ~, SubjectID_FirstVolume] = xASL_init_LongitudinalRegistration(x);
+    [~, ~, IsSubject, SubjectID_FirstVolume] = xASL_init_LongitudinalRegistration(x);
 
     % To check whether or not we will run longitudinal registration
 	
@@ -247,7 +247,13 @@ end
 
 PathDARTEL = fullfile(x.D.PopDir, 'Template_6.nii');
 PathDARTEL_snMat = fullfile(x.D.PopDir, 'Template_6_sn.mat');
-PathMNI = fullfile(x.SPMDIR,'toolbox','cat12','templates_1.50mm','Template_6_IXI555_MNI152.nii');
+[~,catVer] = cat_version();
+if str2double(catVer) > 1500
+	catTempDir = 'templates_volumes';
+else
+	catTempDir = 'templates_1.50mm';
+end
+PathMNI = fullfile(x.SPMDIR,'toolbox','cat12',catTempDir,'Template_6_IXI555_MNI152.nii');
 
 xASL_delete(PathDARTEL_snMat); % make sure that this is always repeated for new DARTEL flow fields
 
@@ -281,11 +287,17 @@ for iS=1:x.nSubjects
 
     if xASL_exist(y_file, 'file')
 
-		xASL_adm_UnzipNifti(y_file,1);
+		xASL_adm_UnzipNifti(y_file, 1);
+        xASL_im_FillNaNs(y_file, 3, x.Quality, [], x);
+
         clear matlabbatch
-        matlabbatch{1}.spm.util.defs.comp{1}.def                    = {y_file};
+        matlabbatch{1}.spm.util.defs.comp{1}.def = {y_file};
         
         if xASL_exist(u_file, 'file')
+            % first unzip & fill NaNs, just to be sure
+            xASL_adm_UnzipNifti(u_file, 1);
+            xASL_im_FillNaNs(u_file, 2);
+
             matlabbatch{1}.spm.util.defs.comp{end+1}.dartel.flowfield = {u_file};
             matlabbatch{1}.spm.util.defs.comp{end}.dartel.times = [1 0];
             matlabbatch{1}.spm.util.defs.comp{end}.dartel.K = 6;
@@ -303,7 +315,7 @@ for iS=1:x.nSubjects
         spm_jobman('run',matlabbatch);
 
         xASL_Move(y_y_file, y_file, true);
-        xASL_im_FixEdgesFlowfield(y_file);
+        xASL_im_FillNaNs(y_file, 3);
         xASL_delete(u_file);
 
         x.P.SubjectID = x.SUBJECTS{iS};

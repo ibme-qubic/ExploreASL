@@ -47,7 +47,7 @@ function [result, x] = xASL_module_LongReg(x)
 
 %% --------------------------------------------------------------
 %% Administration
-x = xASL_init_GenericMutexModules(x, 'LongReg' ); % starts mutex locking process to ensure that everything will run only once
+x = xASL_init_InitializeMutex(x, 'LongReg' ); % starts mutex locking process to ensure that everything will run only once
 
 % 0.9 change working directory to make sure that unspecified output will go there...
 oldFolder = cd(x.SUBJECTDIR);
@@ -72,7 +72,7 @@ iSubject = find(strcmp(x.SUBJECTS,x.P.SubjectID));
 iSession = 1; % append sessions to accommodate sessions in x.S.SetsID
 iSubjSess = ((iSubject-1)*x.nSessions)+iSession;
 
-if ~isfield(x,'WhichLongReg') || isempty(x.WhichLongReg) || ~strcmp(x.WhichLongReg,'DARTEL')
+if ~isfield(x,'WhichLongReg') || isempty(x.WhichLongReg) || ~strcmpi(x.WhichLongReg,'DARTEL')
     x.WhichLongReg = 'LongReg'; % default
 end
 
@@ -209,7 +209,7 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
             % keep default)
             LongRegBatch{1}.spm.tools.longit{1}.series.bparam    = 1000000;
             if isfield(x,'Vendor')
-                if ~isempty(regexp(x.Vendor,'GE'))
+                if ~isempty(regexpi(x.Vendor,'GE'))
                     LongRegBatch{1}.spm.tools.longit{1}.series.bparam    = 0;
                 end
             end
@@ -270,7 +270,7 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
 
                 xASL_delete(Path_rT1);
 
-                if strcmp(x.WhichLongReg,'DARTEL')
+                if strcmpi(x.WhichLongReg,'DARTEL')
                     xASL_spm_reslice(x.D.ResliceRef, Path_c1T1, [], [], x.Quality, [], 1);
                     xASL_spm_reslice(x.D.ResliceRef, Path_c2T1, [], [], x.Quality, [], 1);
                     if exist(Path_c3T1,'file')
@@ -311,7 +311,7 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
                 xASL_Move(DeformationFile, TempRegFile, true);
             end
 
-            if strcmp(x.WhichLongReg, 'DARTEL')
+            if strcmpi(x.WhichLongReg, 'DARTEL')
                 spm_jobman('run',DARTELbatch);
             else % default
                 spm_jobman('run',LongRegBatch);
@@ -320,7 +320,7 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
             %% ---------------------------------------------------------------------------------
             % Rename deformation file
             for iS=1:length(CurrentSub)
-                if strcmp(x.WhichLongReg,'DARTEL')
+                if strcmpi(x.WhichLongReg,'DARTEL')
                     DeformationFile = fullfile(x.D.ROOT, CurrentSub{iS}, 'u_rc1T1_Template.nii');
                 else
                     DeformationFile = fullfile(x.D.ROOT, CurrentSub{iS}, 'y_rT1.nii');
@@ -393,7 +393,7 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
                     % combine the longitdinal transformations & the y_T1.nii from the first TimePoint
                     % & then remove the original longitudinal transformations
 
-                    if strcmp(x.WhichLongReg,'DARTEL')
+                    if strcmpi(x.WhichLongReg,'DARTEL')
                         matlabbatch{1}.spm.util.defs.comp{1}.dartel.flowfield = {LongRegFile2};
                         matlabbatch{1}.spm.util.defs.comp{1}.dartel.times = [1 0];
                         matlabbatch{1}.spm.util.defs.comp{1}.dartel.K = 6;
@@ -418,14 +418,14 @@ if  strcmp(x.P.SubjectID,CurrentSub{1}) && length(VolumeN)>1 % only perform if t
 
                     xASL_delete(LongRegFile2);
 
-                    xASL_im_FixEdgesFlowfield(y_File2);
+                    xASL_im_FillNaNs(y_File2, 3, x.Quality, [], x);
                 end
 
                 OUTPUT2name      = fullfile( x.D.ROOT, CurrentSub{iS}, ['r2' x.P.STRUCT '.nii']);
                 xASL_spm_deformations(x, INPUTname, OUTPUT2name); % with LongReg
 
                 % Perform QC check for all volumes, compare with first volume
-                xASL_im_CreateVisualLongReg(x, CurrentSub);
+                xASL_vis_CreateVisualLongReg(x, CurrentSub);
                 xASL_delete(OUTPUTname);
                 xASL_delete(OUTPUT2name);
             end
@@ -472,5 +472,95 @@ x.mutex.AddState('999_ready');
 x.mutex.Unlock();
 cd(oldFolder);
 result = true;
+
+end
+
+
+
+
+
+%% ======================================================================================================================
+%% ======================================================================================================================
+
+
+
+
+function xASL_vis_CreateVisualLongReg( x, CurrentSub)
+% xASL_vis_CreateVisualLongReg Creates for each Other TimePoint (TP):
+% First row 1) First TP 2) Other TP
+% Second row First TP with normalized difference image between TPs without (1) and with (2) Longitudinal Registration
+
+    fprintf('%s\n','Creating comparison image for images with and without longitudinal registration');
+
+    xASL_adm_CreateDir(x.D.LongRegCheckDir);
+
+    x.S.CorSlices = [];
+    x.S.SagSlices = [];
+    x.S.TraSlices = x.S.slicesLarge;
+
+    % Create brainmask with TimePoint 1 pGM & pWM
+    pGMpath  = fullfile(x.D.PopDir,['rc1T1_' CurrentSub{1} '.nii']);
+    pWMpath  = fullfile(x.D.PopDir,['rc2T1_' CurrentSub{1} '.nii']);
+    Bmask    = (xASL_io_Nifti2Im(pGMpath) + xASL_io_Nifti2Im(pWMpath))>0.1;
+
+    % This is before LongReg for the first TimePoint,
+    % which we will compare all other TimePoints against,
+    % for both before {1} & after {2} LongReg
+    T1wOri = fullfile( x.D.ROOT, CurrentSub{1}, ['r' x.P.STRUCT '.nii']);
+    imOri = RobustScaling(xASL_io_Nifti2Im(T1wOri));
+
+    % Load files
+    for iC=2:length(CurrentSub)
+
+        % before LongReg = {1}, after LongReg = {2}
+        T1wFile{1} = fullfile( x.D.ROOT, CurrentSub{iC}, ['r' x.P.STRUCT '.nii']);
+        T1wFile{2} = fullfile( x.D.ROOT, CurrentSub{iC}, ['r2' x.P.STRUCT '.nii']);
+
+        for ii=1:2
+            im{ii} = RobustScaling(xASL_io_Nifti2Im(T1wFile{ii})); % scale
+            DiffIM{ii} = abs(imOri - im{ii}); % subtract original from other TimePoint
+            MeanIM{ii} = (imOri + im{ii})./2; % mean original & other TimePoint
+            AI{ii} = DiffIM{ii} ./ MeanIM{ii} .* 100; % normalize difference image into asymmetry image
+            AI{ii} = AI{ii} .*single(Bmask); % mask asymmetry image
+        end
+
+        % Make sure both AIs will get the same scale (as they are scaled separately in xASL_vis_CreateVisualFig below)
+        SortValues = max(AI{1},AI{2});
+        SortValues = sort(SortValues(isfinite(SortValues) & Bmask));
+        ThreshMax = SortValues(round(0.99*length(SortValues)));
+        ThreshMin = median(SortValues);
+        for ii=1:2
+            % Clip both with the same max value
+            AI{ii}(AI{ii}>ThreshMax) = ThreshMax;
+            % Remove all below the median asymmetries
+            AI{ii}(AI{ii}<ThreshMin) = 0;
+            % Square asymmetries, this helps to remove the noise and show only important differences
+            AI{ii} = AI{ii}.^2;
+        end
+
+
+
+
+        % Plot first TimePoint & other TimePoint
+        OutIM1 = xASL_vis_CreateVisualFig(x, fullfile(x.D.ROOT, CurrentSub{1}, ['r' x.P.STRUCT '.nii']));
+        OutIM2 = xASL_vis_CreateVisualFig(x, fullfile(x.D.ROOT, CurrentSub{iC}, ['r2' x.P.STRUCT '.nii']));
+        % Plot first TimePoint + AI image
+        OutIM3 = xASL_vis_CreateVisualFig(x, {im{1}, AI{1}}, [], [], [], {x.S.gray x.S.jet256}, false);
+        OutIM4 = xASL_vis_CreateVisualFig(x, {im{1}, AI{2}}, [], [], [], {x.S.gray x.S.jet256}, false);
+
+        xASL_vis_Imwrite([OutIM1,OutIM2;OutIM3,OutIM4], fullfile( x.D.LongRegCheckDir,[CurrentSub{1} '_vs_' CurrentSub{iC} '.jpg']));
+
+    end
+end
+
+
+
+
+
+function [IMout]    = RobustScaling( IMin)
+
+    SortedIM    = sort(IMin(isfinite(IMin)));
+    Value95     = SortedIM(round(1*length(SortedIM))); % 0.95*(length....
+    IMout       = IMin./Value95.*500;
 
 end

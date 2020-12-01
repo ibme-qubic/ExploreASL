@@ -1,17 +1,49 @@
 function [result, x] = xASL_module_dwi(x)
-% $Rev:: 475                   $:  Revision of last commit
-% $Author:: hjmutsaerts        $:  Author of last commit
-% $Date:: 2017-03-21 13:12:48 #$:  Date of last commit
-
-%% DWI module of ExploreASL Paul, Matthan, Henk-Jan
-% scripts taken from Chris Vriends script (run_topup_DWI.sh)
+%xASL_module_dwi ExploreASL module for DWI pre-processing
+%
+% FORMAT: [result, x] = xASL_module_dwi(x)
+%
+% INPUT:
+%   x  - x structure containing all input parameters (REQUIRED)
+%   x.SUBJECTDIR  -  anatomical directory, containing the derivatives of anatomical images (REQUIRED)
+%   x.SESSIONDIR  -  ASL directory, containing the derivatives of perfusion images (REQUIRED)
+%
+% OUTPUT:
+%   result  - true for successful run of this module, false for insuccessful run
+%   x       - x structure containing all output parameters (REQUIRED)
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% DESCRIPTION: This ExploreASL module processes  DWI
+% images, this module is created 'quick and dirty' from the ExploreASL ASL
+% module. It works and has tested with EPAD data, after initial import, but
+% use for own risk in other circumstances.
+%
+% scripts taken from AUMC Chris Vriends script (run_topup_DWI.sh)
 % Some extra options for Eddy current correction:
 % --repol does some additional correction of motion-related artifacts
 % --verbose to see it running
+%
+% This module has the following submodules/wrappers:
+%
+% 1    TopUp
+% 2    Eddy current (distortion correct, motion correction etc)
+% 3    Registration to T1w
+% 4    DTI fit to create SSE parameter
+% 5    Reslice DTI data
+% 6    Visual check
+% 7    Store QC
+% 8    WAD-QC
+%
+% EXAMPLE: [~, x] = xASL_module_dwi(x);
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% Copyright 2015-2020 ExploreASL
 
-%% 0. INPUT
 
-x = xASL_init_GenericMutexModules( x, 'dwi' ); % starts mutex locking process to ensure that everything will run only once
+
+
+
+%% -----------------------------------------------------------------------------
+%% 0    Admin
+x = xASL_init_InitializeMutex( x, 'dwi' ); % starts mutex locking process to ensure that everything will run only once
 result = false;
 
 %% 0.9 change working directory to make sure that unspecified output will go there...
@@ -73,6 +105,7 @@ x.P.Path_dwi_mean = fullfile(x.SESSIONDIR, [FileDWI '_mean.nii']);
 x.P.Path_dwi_mask = fullfile(x.SESSIONDIR, [FileDWI '_mean_mask.nii']);
 % x.P.Path_wdwi = fullfile(x.SESSIONDIR, ['w' FileDWI '.nii']);
 % x.P.Path_wdwiMat = fullfile(x.SESSIONDIR, ['w' FileDWI '.mat']);
+Path_ADC = fullfile(x.SESSIONDIR, [FileDWI(1:end-3) 'ADC.nii']);
 
 % Derivatives
 PathTopUp = 'TopUp'; % base name of TopUp output files (spline coefficient & movparms)
@@ -231,13 +264,15 @@ if ~x.mutex.HasState('020_EddyCurrent') || ~xASL_exist(PathEddyNii,'file')
         EddyCommand = [EddyCommand ' --niter=1 --flm=linear --interp=trilinear'];
     end
 
-    xASL_fsl_RunFSL(EddyCommand, x);
+    [~, Result1] = xASL_fsl_RunFSL(EddyCommand, x);
     xASL_delete(PathWithoutOutlierRemoval); % this is Eddy without outlier removal, don't need it
     xASL_delete(x.P.Path_dwi_mean);
     xASL_delete(x.P.Path_dwi_mask);
     
-    x.mutex.AddState('020_EddyCurrent');
-    x.mutex.DelState('030_RegistrationDWI2T1w');
+    if Result1==0
+        x.mutex.AddState('020_EddyCurrent');
+        x.mutex.DelState('030_RegistrationDWI2T1w');
+    end
 elseif   bO; fprintf('%s\n','020_EddyCurrent has already been performed, skipping...');
 end
 
@@ -246,14 +281,16 @@ end
 if ~x.mutex.HasState('030_RegistrationDWI2T1w')
 
     % Registration to T1w
-    OtherList = xASL_adm_GetFileList(x.SESSIONDIR, '^(B0|dwi|Field|TopUp|Unwarped).*\.nii', 'FPList', [0 Inf]);
+    OtherList = xASL_adm_GetFileList(x.SESSIONDIR, '^(ADC|B0|dwi|Field|TopUp|Unwarped).*\.nii', 'FPList', [0 Inf]);
 
-    xASL_im_CenterOfMass(PathEddyNii, OtherList);
+    xASL_im_CenterOfMass(PathEddyNii, OtherList, 10);
     % Create mutual information reference image for best registration reference
-    % Disabled for now, simply using T1w as everyone
-%     NewIM = xASL_io_Nifti2Im(x.P.Path_c1T1)+xASL_io_Nifti2Im(x.P.Path_c2T1).*2+xASL_io_Nifti2Im(x.P.Path_c3T1).*3;
-%     xASL_io_SaveNifti(x.P.Path_c1T1, PathMIref, NewIM, [], 0);
-    xASL_spm_coreg(x.P.Path_T1, PathEddyNii, OtherList, x, [], true);
+    DummyIM = xASL_io_Nifti2Im(x.P.Path_c1T1).*1.25+xASL_io_Nifti2Im(x.P.Path_c2T1)+xASL_io_Nifti2Im(x.P.Path_c3T1).*2;
+    DummyPath = fullfile(x.SESSIONDIR, 'Tempc1c2c3.nii');
+    xASL_io_SaveNifti(x.P.Path_c1T1, DummyPath, DummyIM, [], 0);    
+    
+    xASL_spm_coreg(DummyPath, PathEddyNii, OtherList, x);
+    xASL_delete(DummyPath);
 
     % Remove the mat-files (that have equal parameters and won't be used by
     % FSL, only by SPM), so this would incorrectly not apply the FSL
@@ -326,7 +363,7 @@ if ~x.mutex.HasState('050_resliceDWI')
     elseif ~xASL_exist(x.P.Path_y_T1,'file')
         error('Structural module did not run correctly yet');
     else
-        xASL_wrp_CreateASLDeformationField(x, true, [2.5 2.5 2.5], x.P.Path_dwi_mean); % assume bit lower resolution than the 2 mm that is usually used
+        xASL_im_CreateASLDeformationField(x, true, [2.5 2.5 2.5], x.P.Path_dwi_mean); % assume bit lower resolution than the 2 mm that is usually used
     end
 
     % output QC parameters: average SSE? over mask?
@@ -379,7 +416,7 @@ if ~x.mutex.HasState('060_visualize')
     DTI_VisualQC_BVEC(PathBvec, x);
 
     %% Visual QC of TopUp
-    [Output1, Output2] = xASL_im_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, iSubject, x.D.dwiCheckDir);
+    [Output1, Output2] = xASL_vis_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, iSubject, x.D.dwiCheckDir);
     
     x.Output.dwi.MeanAI_PreTopUp_Perc = Output1;
     x.Output.dwi.MeanAI_PostTopUp_Perc = Output2;
@@ -417,10 +454,10 @@ if ~x.mutex.HasState('060_visualize')
         end
         % visualize
         Parms.ModuleName = 'dwi';
-        Parms.IM = xASL_im_CreateVisualFig(x, ImIn{iM}, DirOut{iM}, x.V.IntScale{iM}, x.V.NameExt{iM}, x.V.ColorMapIs{iM});
+        Parms.IM = xASL_vis_CreateVisualFig(x, ImIn{iM}, DirOut{iM}, x.V.IntScale{iM}, x.V.NameExt{iM}, x.V.ColorMapIs{iM});
         % add single slice to QC collection
         if  sum(~isnan(Parms.IM(:)))>0 % if image is not empty
-            x = xASL_im_AddIM2QC(x, Parms);
+            x = xASL_vis_AddIM2QC(x, Parms);
         end
     end
 
@@ -497,12 +534,12 @@ elseif  bO; fprintf('%s\n','070_QC has already been performed, skipping...');
 end    
 
 %% -----------------------------------------------------------------------------
-%% 7    WAD-QC
-if ~x.mutex.HasState('070_WADQC') && x.DoWADQCDC
+%% 8    WAD-QC
+if ~x.mutex.HasState('080_WADQC') && x.DoWADQCDC
     xASL_qc_WADQCDC(x, iSubject, 'dwi');
-    x.mutex.AddState('070_WADQC');
-elseif x.mutex.HasState('070_WADQC') && bO
-    fprintf('%s\n', '070_WADQC has already been performed, skipping...');
+    x.mutex.AddState('080_WADQC');
+elseif x.mutex.HasState('080_WADQC') && bO
+    fprintf('%s\n', '080_WADQC has already been performed, skipping...');
 end
 
 

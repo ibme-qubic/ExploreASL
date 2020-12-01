@@ -33,6 +33,8 @@ function x = DataParTemplate(x)
 %                             if disabled, this function will try to use the system-initialized FSL 
 %                             and throw an error if FSL is not initialized
 %                             (OPTIONAL, DEFAULT = disabled)
+% x.MakeNIfTI4DICOM - Boolean to output CBF native space maps resampled and/or registered to the original T1w/ASL, and contrast adapted and in 12 bit
+% 					  range allowing to convert the NIfTI to a DICOM file, e.g. for implementation in PACS or other DICOM archives
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
 % STUDY PARAMETERS
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -184,7 +186,7 @@ function x = DataParTemplate(x)
 %                 - options:
 %                   - 1 = skip processing of a subject that does not have a M0 image
 %                   - 0 = do not skip anything
-% x.SegmentSPM12 - boolean to specify if SPM12 is run instead of CAT12 (OPTIONAL, DEFAULT = 0)
+% x.SegmentSPM12 - boolean to specify if SPM12 segmentation is run instead of CAT12 (OPTIONAL, DEFAULT = 0)
 %                - options:
 %                  - 1 = run SPM12
 %                  - 0 = run CAT12
@@ -203,6 +205,51 @@ function x = DataParTemplate(x)
 %                  - 1 = affine registration enabled
 %                  - 2 = affine registration automatically chosen based on
 %                        spatial CoV of PWI
+% x.bDCTRegistration -  Specifies if to include the DCT registration on top of Affine, all other 
+%                            requirements for affine are thus also taken into account (OPTIONAL, DEFAULT = 0)
+%                            the x.bAffineRegistration must be >0 for DCT to run
+%                          - 0 = DCT registration disabled
+%                          - 1 = DCT registration enabled if affine enabled and conditions for affine passed
+%                          - 2 = DCT enabled as above, but use PVC on top of it to get the local intensity scaling right
+% x.bRegisterM02ASL - boolean specifying whether M0 is registered to
+%                     mean_control image (or T1w if no control image exists)
+%                     It can be useful to disable M0 registration if the
+%                     ASL registration is done based on the M0, and little
+%                     motion is expected between the M0 and ASL
+%                     acquisition.
+%                     If no separate M0 image is available, this parameter
+%                     will have no effect. This option is disabled
+%                     automatically for 3D spiral
+%                     (OPTIONAL, DEFAULT = 0)
+%                     - 0 = M0 registration disabled
+%                     - 1 = M0 registration enabled (DEFAULT)
+% x.bUseMNIasDummyStructural - When structural (e.g. T1w) data is missing, copy population-average
+%  							   MNI templates as dummy structural templates. With this option, the
+% 							   ASL module copies the structural templates to fool the pipeline,
+% 							   resulting in ASL registration to these templates. While the rigid-body
+% 							   parameters might still be found somewhat correctly, with this option
+% 							   it is advised to enable affine registration for ASL as well, since ASL
+% 							   and these dummy structural images will differ geometrically.
+% 							   When disabled, an error will be issued instead when the structural images
+% 							   are missing.
+% 							   (OPTIONAL, DEFAULT = 0).
+% 							   - 1 = enabled
+% 							   - 0 = disabled
+%
+%% Masking parameters
+%   x.S.bMasking        - vector specifying if we should mask a ROI with a subject-specific mask
+%                       (1 = yes, 0 = no)
+%                       [1 0 0 0] = susceptibility mask (either population-or subject-wise)
+%                       [0 1 0 0] = vascular mask (only subject-wise)
+%                       [0 0 1 0] = subject-specific tissue-masking (e.g. pGM>0.5)
+%                       [0 0 0 1] = WholeBrain masking (used as memory compression)
+%                       [0 0 0 0] = no masking at all
+%                       [1 1 1 1] = apply all masks
+%                       Can also be used as boolean, where 
+%                       1 = [1 1 1 1]
+%                       0 = [0 0 0 0]
+%                       Can be useful for e.g. loading lesion masks outside the GM
+%                       (OPTIONAL, DEFAULT=1)
 
 x.name = ExampleDataSet;
 x.subject_regexp = '^Sub-\d{3}$';

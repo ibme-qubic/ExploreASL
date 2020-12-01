@@ -70,7 +70,7 @@ if nargin < 2 || isempty(bUseDCMTK)
 end
 
 if nargin < 3 || isempty(bCheckPermissions)
-    if isunix
+    if isunix || ismac
         bCheckPermissions = false; % set this to TRUE LATER!!!!!!
     else
         bCheckPermissions = false;
@@ -80,6 +80,7 @@ if nargin<4 || isempty(bRunExploreASL)
     bRunExploreASL = true;
 end
 
+% Ensure we start in the EPAD folder
 if exist(fullfile(pwd,'ExploreASL_Master.m')) % we are in the ExploreASL root folder
     cd(fullfile('CustomScripts','EPAD'));
 end
@@ -125,6 +126,10 @@ if bCopy % copy DICOMs from //ROOT to //ROOT/raw
 end
 
 
+% Add this folder to path & go to ExploreASL root
+addpath(genpath(pwd));
+cd ../..;
+
 %% ========================================================
 %% 1) Run the curation script, to sort the DICOMs
 fprintf('\n\n%s\n', '----------------------------------------------');
@@ -133,9 +138,6 @@ StatusPath = fullfile(RawDir, 'DCM_StructureList.mat'); % ->>>> DELETE THIS FILE
 if ~exist(StatusPath, 'file')
     EPAD_dcmCuration(RawDir, bUseDCMTK, bCheckPermissions);
 end
-
-CurrDir = pwd;
-cd ../..;
 
 
 %% ========================================================
@@ -147,7 +149,7 @@ StatusPath = fullfile(AnalysisDir, 'import_summary.csv'); % ->>>> DELETE THIS FI
 if ~exist(StatusPath, 'file')
     % now start reading the parameters from ScanType_LabelsConfig.csv
     % & putting them in import parameter struct imPar 
-    [~, ScanTypeConfig] = xASL_adm_csv2tsv(fullfile(RawDir, 'ScanType_LabelsConfig.csv'), false, false);
+    [ScanTypeConfig] = xASL_csvRead(fullfile(RawDir, 'ScanType_LabelsConfig.csv'));
     for iL=1:size(ScanTypeConfig,1)
         BIDSlist{iL,1} = [ScanTypeConfig{iL,2} '_' ScanTypeConfig{iL,3}];
     end
@@ -192,7 +194,7 @@ if ~exist(StatusPath, 'file')
     % Now throw error or warning depending on pre-existing TimePoints
     if ~isempty(xASL_adm_GetFileList(AnalysisDir, '^\d{3}EPAD\d*$','FPList',[0 Inf],true))
         error('Pre-existing analysis-subject folders without TimePoint suffix');
-    elseif ~isempty(xASL_adm_GetFileList(AnalysisDir, '^\d{3}EPAD\d*_\d$','FPList',[0 Inf],true))
+    elseif ~isempty(xASL_adm_GetFileList(AnalysisDir, '^\d{3}EPAD\d*_\d*$','FPList',[0 Inf],true))
         warning('Make sure that all existing analysis-subject folders have the correct suffix');
     end
     
@@ -220,10 +222,9 @@ EPAD_BIDS_Fix_DTI(AnalysisDir); % fix ADC conversion & create NormPE NIfTI
 EPAD_BIDS_Fix_PE(AnalysisDir); % Combine separate NormPE/RevPE dirs into single dir per contrast
 EPAD_Manage_PEPolar_Parms(AnalysisDir); % put the correct PEPolar parameters in the JSON files
 EPAD_BIDS_Fix_ASL(AnalysisDir); % Fix dcm2nii ASL conversion errors
-EPAD_ASL_parmsPrepare(AnalysisDir); % REPLACE THIS FUNCTION BY EPAD_CREATEASLJSONPARS.M
+% EPAD_ASL_parmsPrepare(AnalysisDir); % REPLACE THIS FUNCTION BY EPAD_CREATEASLJSONPARS.M
 EPAD_CreateASLJSONPars(AnalysisDir); % List ASL sequence parameters & populate the JSONs for quantification
-EPAD_CopyFLAIR_WMH_Carole(ROOT); % Copy WMHs segmented by Carole, making sure to also copy the FLAIRs that are in alignment with the WMH
-
+EPAD_CopyFLAIR_WMH_Carole(AnalysisDir, '/radshare/EPAD/Carole/EPAD_All_CaroleOutput'); % Copy WMHs segmented by Carole, making sure to also copy the FLAIRs that are in alignment with the WMH
 
 % Check availability files
 EPAD_ReportMissingFiles(ROOT, false); % set latter to true for removing incomplete subjects for re-import

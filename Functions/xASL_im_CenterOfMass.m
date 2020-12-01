@@ -1,5 +1,6 @@
 function xASL_im_CenterOfMass(PathNIfTI, OtherList, AllowedDistance)
 %xASL_im_CenterOfMass Determine and apply center of mass
+%
 % FORMAT: xASL_im_CenterOfMass(PathNIfTI, OtherList, AllowedDistance)
 %
 % INPUT:
@@ -16,12 +17,14 @@ function xASL_im_CenterOfMass(PathNIfTI, OtherList, AllowedDistance)
 %              This fixes any incorrect orientation outputted by the
 %              scanner.
 %              The realignment is only applied when any of the X/Y/Z
-%              dimensions have a higher offset than AllowedDistance
+%              dimensions have a higher offset than AllowedDistance.
 %
-% EXAMPLE for T1w: xASL_im_CenterOfMass('Path2Study/sub-001/T1.nii', {'Path2Study/sub-001/FLAIR.nii'}, 0);
-% EXAMPLE for ASL: xASL_im_CenterOfMass('Path2Study/sub-001/ASL_1/ASL4D.nii', {'Path2Study/sub-001/ASL_1/M0.nii'}, 50);
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+%
+% EXAMPLE:      T1w: xASL_im_CenterOfMass('Path2Study/sub-001/T1.nii', {'Path2Study/sub-001/FLAIR.nii'}, 0);
+%               ASL: xASL_im_CenterOfMass('Path2Study/sub-001/ASL_1/ASL4D.nii', {'Path2Study/sub-001/ASL_1/M0.nii'}, 50);
 % __________________________________
-% Copyright (C) 2015-2019 ExploreASL
+% Copyright (C) 2015-2020 ExploreASL
 
 
 
@@ -30,7 +33,9 @@ function xASL_im_CenterOfMass(PathNIfTI, OtherList, AllowedDistance)
 if nargin<2 || isempty(OtherList) || isempty(OtherList{1})
     OtherList{1} = PathNIfTI;
 else
-    OtherList = xASL_adm_OtherListSPM(OtherList);
+    OtherList = xASL_adm_OtherListSPM(OtherList, false); 
+    % here we want a NIfTI with multiple volumes mentioned only once in the
+    % list, as below we deal with the "other/n>1" volumes
     for iList=1:length(OtherList)
         OtherList{iList} = OtherList{iList}(1:end-2);
     end

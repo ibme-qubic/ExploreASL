@@ -1,20 +1,30 @@
 function [niifiles, ScanNameOut, usedinput, msg] = xASL_io_dcm2nii(inpath, destdir, series_name, varargin)
-% xASL_io_dcm2nii
-% Convert DICOM NIfTI/BIDS format using the dcm2nii command line utility
+%xASL_io_dcm2nii Convert DICOM NIfTI/BIDS format using the dcm2nii command line utility.
 % (http://www.nitrc.org/projects/mricron)
 %
-% - inpath           path to dicom folder, dicom file, PAR-file or REC-file. In case of a dicom folder, 'DcmExt' will be used to
-%                    filter the folder contents. In case of a dicom file, all dicom files in the same folder will be used.
-% - 'Verbose'        optional: set to true or false to switch terminal feedback; default false
-% - 'Overwrite'      optional: set to true or false to overwrite existing files; default false
-% - 'DicomFilter'    optional: regular expression used to find dicom files; default '^.+\.dcm$'
-% - 'Keep'           optional: vector with indices of output files to keep; default [1:Inf] (all files)
-% - 'IniPath'        optional: string with path of dcm2nii configuration file; default is to use ./mricron/dcm2nii-custom.ini
-% - 'ExePath'        optional: string with path of dcm2nii application; default is to use internal copy in ./mricron folder
-% - 'Version'        optional: string with version stamp of dcm2nii application (yyyymmdd: 20101105, 20130606); default is 20101105
+% FORMAT:       [niifiles, ScanNameOut, usedinput, msg] = xASL_io_dcm2nii(inpath, destdir, series_name, varargin)
+% 
+% INPUT:        - inpath           path to dicom folder, dicom file, PAR-file or REC-file. In case of a dicom folder, 'DcmExt' will be used to
+%                                  filter the folder contents. In case of a dicom file, all dicom files in the same folder will be used.
+%               - 'Verbose'        optional: set to true or false to switch terminal feedback; default false
+%               - 'Overwrite'      optional: set to true or false to overwrite existing files; default false
+%               - 'DicomFilter'    optional: regular expression used to find dicom files; default '^.+\.dcm$'
+%               - 'Keep'           optional: vector with indices of output files to keep; default [1:Inf] (all files)
+%               - 'IniPath'        optional: string with path of dcm2nii configuration file; default is to use ./mricron/dcm2nii-custom.ini
+%               - 'ExePath'        optional: string with path of dcm2nii application; default is to use internal copy in ./mricron folder
+%               - 'Version'        optional: string with version stamp of dcm2nii application (yyyymmdd: 20101105, 20130606); default is 20101105
 %
-% The first DICOM file will be used if inpath is a directory.
-%   Detailed explanation goes here
+%               The first DICOM file will be used if inpath is a directory.
+%
+% OUTPUT:       ...
+% 
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% DESCRIPTION:  Convert DICOM NIfTI/BIDS format using the dcm2nii command line utility.
+%
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% EXAMPLE:      ...
+% __________________________________
+% Copyright 2015-2020 ExploreASL
 
     niifiles = {};
     msg = [];
@@ -208,6 +218,68 @@ function [niifiles, ScanNameOut, usedinput, msg] = xASL_io_dcm2nii(inpath, destd
 
         %% move/rename nifties to final destination
         niiEntries = xASL_adm_GetFileList(temp_dir, '.*\.nii$', 'FPListRec', [0 Inf]);
+		
+		% Matlab sometimes has a problem to read special characters
+        % This hasnt been fixed yet for windows
+		if isempty(niiEntries) 
+			% Try to read files with LS command
+			pathEntriesAlt = ls(temp_dir);
+			
+            if ~isempty(pathEntriesAlt)
+            
+				% Not yet properly tested on Windows, as the error hasn't occured there with the same data as on Linux
+				if ispc()
+					warning('Illegal characters detected in filename. Will attempt to fix it, but this was not tested on Windows yet.');
+				end
+                % Then break to separate files according to character 32
+                indNewLine = find(pathEntriesAlt == 10);
+
+                %indNewLine = [indNewLine(:);length(pathEntriesAlt)+1];
+                indexStart = 1;
+                niiEntriesAlt = '';
+                for iEntry = 1:length(indNewLine)
+                    % Skip the new line cr (10 32) at the end
+                    niiEntriesAlt{iEntry} = pathEntriesAlt(indexStart:(indNewLine(iEntry)-1));
+                    indexStart = indNewLine(iEntry)+1;
+                end
+
+                for iEntry = 1:length(niiEntriesAlt)
+                    % Remove leading and trailing apostrophes and 10s for
+                    if niiEntriesAlt{iEntry}(1) == 32
+                        niiEntriesAlt{iEntry} = niiEntriesAlt{iEntry}(2:end);
+                    end
+                    if niiEntriesAlt{iEntry}(end) == 32
+                        niiEntriesAlt{iEntry} = niiEntriesAlt{iEntry}(1:(end-1));
+                    end
+
+                    if niiEntriesAlt{iEntry}(1) == 39
+                        niiEntriesAlt{iEntry} = niiEntriesAlt{iEntry}(2:end);
+                    end
+                    if niiEntriesAlt{iEntry}(end) == 39
+                        niiEntriesAlt{iEntry} = niiEntriesAlt{iEntry}(1:(end-1));
+                    end
+
+                    % Look for further '$' and '' as starting and ending patterns
+    				indexStart = strfind(niiEntriesAlt{iEnt}, string('''$'''));
+    				indexEnd = strfind(niiEntriesAlt{iEnt}, string(''''''));
+
+                    % If both patterns exist, then remove its contents (insides)
+                    
+                    if ~isempty(indexStart) && ~isempty(indexEnd)
+                        % Within that count the number of special characters by backslashes
+                        numSlashes = sum(niiEntriesAlt{iEntry}((indexStart+3):(indexEnd-1)) == '\');
+
+                        % Replace by ? and move files to a normal name
+                        temp_file_subs = [niiEntriesAlt{iEntry}(1:(indexStart-1)), repmat('?',[1 numSlashes]), niiEntriesAlt{iEntry}((indexEnd+2):end)];
+                        temp_file_fixed = niiEntriesAlt{iEntry}([1:(indexStart-1),(indexEnd+2):end]);
+                        xASL_SysMove(temp_file_subs,temp_file_fixed,[],false);
+                    end
+                end
+                % Read the files again
+                niiEntries = xASL_adm_GetFileList(temp_dir, '.*\.nii$', 'FPListRec', [0 Inf]);
+            end
+		end
+		
         if isempty(niiEntries)
             error('Empty output dcm2nii');
         else
@@ -272,9 +344,45 @@ function [niifiles, ScanNameOut, usedinput, msg] = xASL_io_dcm2nii(inpath, destd
                 if length(parms.Keep)>1 % add iVolume suffix (if there are multiple)
                     DestFileName = [DestFileName '_' int2str(iVolume)];
                 end
-                DestFileName = xASL_adm_CorrectName(DestFileName);
+%                 DestFileName = xASL_adm_CorrectName(DestFileName); %
+%                 TAKING THIS OUT HERE, IF WE WANT THIS THIS NEEDS TO BE
+%                 EQUAL FOR THE dcm2niiX OUTPUT AND THE JSON THAT WE CREATE
+%                 WITH DCMTK
+%                 ALSO BIDS REQUIRES TO KEEP '-' IN
 
                 dest_file = fullfile(destdir,[DestFileName '.nii']);
+				
+				% Check for suspicious illegal characters
+                indIchar = find((temp_file < 32) | (temp_file > 126));
+                if ~isempty(indIchar)
+                    % If these characters are present in the file name, we
+                    % will not be able to move it in the following step
+                   
+                    % We therefore replace the illegal characters by ? to
+                    % allow moving
+                    temp_file_subs = temp_file;
+                    temp_file_subs(indIchar) = '?';
+                    temp_file_fixed = temp_file;
+                    temp_file_fixed(indIchar) = '_';
+                    
+                    % And we then move to a file with a similar name, but
+                    % illegal characters replaced by a
+                    xASL_SysMove(temp_file_subs,temp_file_fixed,[],false);
+                    
+                    % From then on, work with the corrected file name
+                    temp_file = temp_file_fixed;
+                    
+                    % Apply the same to other BIDS files
+                    BIDSext = {'.json' '.bval' '.bvec'};
+                    for iB=1:length(BIDSext)
+                        [Gpath, Gfile] = xASL_fileparts(temp_file_subs);
+                        temp_BIDS = fullfile(Gpath, [Gfile BIDSext{iB}]);
+                        [Gpath, Gfile] = xASL_fileparts(temp_file_fixed);
+                        dest_BIDS = fullfile(Gpath, [Gfile BIDSext{iB}]);
+                        xASL_SysMove(temp_BIDS, dest_BIDS, [],false);
+                    end
+                end
+				
                 xASL_Move(temp_file, dest_file, parms.Overwrite, parms.Verbose);
                 niifiles{end+1} = dest_file; %#ok<AGROW>
 

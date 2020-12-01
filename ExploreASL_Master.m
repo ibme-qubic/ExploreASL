@@ -1,11 +1,14 @@
 function [x] = ExploreASL_Master(DataParPath, ProcessData, SkipPause, iWorker, nWorkers, iModules)
 %ExploreASL_Master ExploreASL pipeline master wrapper calling the individual pipeline modules
 %
-% FORMAT: [x] = ExploreASL_Master([DataParPath, ProcessData, SkipPause, iWorker, nWorkers, iModules])
+% FORMAT: [x] = ExploreASL([DataParPath, ProcessData, SkipPause, iWorker, nWorkers, iModules])
 % 
 % INPUT:
 %   DataParPath - path to data parameter file (OPTIONAL, required when ProcessData=true, will then be prompted if omitted)
-%   ProcessData - true if running pipeline on data, false if only initializing ExploreASL (e.g. path management etc, REQUIRED, will be prompted if omitted)
+%   ProcessData - 0 = only initialize ExploreASL functionality (e.g. path management etc, REQUIRED, will be prompted if omitted)
+%               - 1 = initialize ExploreASL functionality, load data & start processing pipeline, 
+%               - 2 = initialize ExploreASL functionality, load data but no processing
+%               - (OPTIONAL, default=prompt the user)
 %   SkipPause   - true if calling pipeline without pausing for questioning for user prompting (OPTIONAL, DEFAULT=false)
 %   iWorker     - allows parallelization when called externally. iWorker defines which of the parallel ExploreASL calls we are (OPTIONAL, DEFAULT=1)
 %   nWorkers    - allows parallelization when called externally. nWorkers defines how many ExploreASL calls are made in parallel (OPTIONAL, DEFAULT=1)
@@ -29,13 +32,13 @@ function [x] = ExploreASL_Master(DataParPath, ProcessData, SkipPause, iWorker, n
 % xASL_Module_Population - processes data on population basis, mostly QC, but also template/parametric maps creation, etc. Type help xASL_module_Population for more information 
 % 
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
-% EXAMPLE for GUI: ExploreASL_Master
-% EXAMPLE for calling externally: ExploreASL_Master('//MyDisk/MyStudy/DataPar.m', true, true);
-% EXAMPLE for calling externally to run the Structural module only: ExploreASL_Master('//MyDisk/MyStudy/DataPar.m', true, true, [], [], 1);
-% EXAMPLE for calling externally to run the ASL & Population modules: ExploreASL_Master('//MyDisk/MyStudy/DataPar.m', true, true, [], [], [2 3]);
-% EXAMPLE for debugging/initialization only: [x] = ExploreASL_Master('',0);
+% EXAMPLE for GUI: ExploreASL
+% EXAMPLE for calling externally: ExploreASL('//MyDisk/MyStudy/DataPar.m', true, true);
+% EXAMPLE for calling externally to run the Structural module only: ExploreASL('//MyDisk/MyStudy/DataPar.m', true, true, [], [], 1);
+% EXAMPLE for calling externally to run the ASL & Population modules: ExploreASL('//MyDisk/MyStudy/DataPar.m', true, true, [], [], [2 3]);
+% EXAMPLE for debugging/initialization only: [x] = ExploreASL('',0);
 % __________________________________
-% Copyright 2015-2019 ExploreASL
+% Copyright 2015-2020 ExploreASL
 
     % -----------------------------------------------------------------------------
     %% 1 Initialization when calling this function
@@ -71,10 +74,11 @@ function [x] = ExploreASL_Master(DataParPath, ProcessData, SkipPause, iWorker, n
 
     x = ExploreASL_Initialize(DataParPath, ProcessData, iWorker, nWorkers);
     
-    if ~x.ProcessData
+    if x.ProcessData==0 || x.ProcessData==2
         return; % skip processing
     elseif ~isdeployed && ~SkipPause % if this exists, we skip the break here
         fprintf('%s\n','Press any key to start processing & analyzing');
+        fprintf('Please ensure you have a read-only copy of your original data as they may be overwritten\n');
         fprintf('%s\n','Or press CTRL/command-C to cancel...  ');
         pause;
     else % continue
@@ -98,7 +102,7 @@ function [x] = ExploreASL_Master(DataParPath, ProcessData, SkipPause, iWorker, n
         [~, x] = xASL_Iteration(x,'xASL_module_Structural');
         % The following DARTEL module is an optional extension of the structural module
         % to create population-specific templates
-        if isfield(x,'Segment_SPM12') && x.Segment_SPM12 && x.nSubjects>1
+        if isfield(x,'SegmentSPM12') && x.SegmentSPM12 && x.nSubjects>1
             % in case we used SPM12 instead of CAT12 for segmentation,
             % we have to run DARTEL separately
             [~, x] = xASL_Iteration(x,'xASL_module_DARTEL');
@@ -141,7 +145,7 @@ function [x] = ExploreASL_Master(DataParPath, ProcessData, SkipPause, iWorker, n
 
     % -----------------------------------------------------------------------------    
     %% Finishing touch
-    fprintf('Many thanks for using ExploreASL, please don''t forget to cite Mutsaerts, 2019 BioRxiv\n');
+    fprintf('Many thanks for using ExploreASL, please don''t forget to cite https://pubmed.ncbi.nlm.nih.gov/32526385/\n');
     fprintf('Note that ExploreASL is a collaborative effort.\n');
     fprintf('Therefore, please don''t hesitate to contribute by feedback, adding code snippets, or clinical experience!\n');
     

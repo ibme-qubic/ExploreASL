@@ -27,22 +27,22 @@ function [MaskIM, TreatedCBF] = xASL_im_MaskPeakVascularSignal(PathCBF, Path_M0,
 %              on statistics.
 %              The procedure works as follows:
 %
-%              1) Segment GM on ASL image at 80th percentile of CBF image distribution
-%              2) For PWI & CBF images, select voxels higher than median + ClipThresholdValue MAD
+%              1. Segment {{GM}} on {{ASL}} image at 80th percentile of {{CBF}} image distribution
+%              2. For PWI & CBF images, select voxels higher than median + ClipThresholdValue {{MAD}}
 %                 Vascular artifacts will have a high intensity in both images, whereas errors by division by M0 will only have a high
 %                 intensity on the M0 image, and high values due to a biasfield will only be noticeable on the PWI image
-%              3) Combine the two created masks
-%              4) Obtain average clipping value from selected voxels from the combined masks
-%              5) Apply compression if requested. If not, output image will
+%              3. Combine the two created masks
+%              4. Obtain average clipping value from selected voxels from the combined masks
+%              5. Apply compression if requested. If not, output image will
 %              have NaNs for intra-vascular voxels.
 %
 %              Note that the definition of the threshold is obtained within
 %              the GM only, but that this threshold is applied to the full
-%              image to also remove extracranial extreme values
+%              image to also remove extracranial extreme values.
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
 % EXAMPLE: MaskIM = xASL_im_MaskPeakVascularSignal('/analysis/Sub-001/ASL_1/CBF.nii','/analysis/Sub-001/ASL_1/rM0.nii');
 % __________________________________
-% Copyright 2015-2019 ExploreASL
+% Copyright 2015-2020 ExploreASL
 
 
 
@@ -51,12 +51,13 @@ function [MaskIM, TreatedCBF] = xASL_im_MaskPeakVascularSignal(PathCBF, Path_M0,
 % Admin
 
 if nargin<1 || isempty(PathCBF)
-    warning('No CBF image found, skipping...');
-    return;
+    error('No CBF image found, skipping...');
 else
     TreatedCBF = xASL_io_Nifti2Im(PathCBF);
-    if xASL_stat_SumNan(TreatedCBF(:))==0
+    if sum(isfinite(TreatedCBF(:)))==0
         warning('Empty CBF image, skipping...');
+        MaskIM = ones(size(TreatedCBF));
+        TreatedCBF = TreatedCBF;
         return;
     end
 end

@@ -1,6 +1,6 @@
 /*
  * Robert Dahnke
- * $Id: cat_vbdist.c 1294 2018-03-19 20:33:44Z gaser $ 
+ * $Id: cat_vbdist.c 1523 2019-11-21 23:12:24Z gaser $ 
  *
  */
 
@@ -23,10 +23,10 @@
  */
 
 #include "mex.h"   
-#include "matrix.h"
 #include "math.h"
 #include "float.h"
-
+#include <stdio.h>
+#include <stdlib.h>
 
 /* estimate minimum of A and its index in A */
 void pmin(float A[], int sA, float *minimum, int *index)
@@ -94,7 +94,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
   if (nrhs==3 && mxIsDouble(prhs[2])==0)            mexErrMsgTxt("ERROR:cat_vbdist: third input must be an double matrix\n");
   if (nrhs==3 && mxGetNumberOfElements(prhs[2])!=3) mexErrMsgTxt("ERROR:cat_vbdist: third input must have 3 Elements"); 
   
-  /* main informations about input data (size, dimensions, ...) */
+  /* main information about input data (size, dimensions, ...) */
   sL = mxGetDimensions(prhs[0]);
   dL = mxGetNumberOfDimensions(prhs[0]);
   nL = mxGetNumberOfElements(prhs[0]);

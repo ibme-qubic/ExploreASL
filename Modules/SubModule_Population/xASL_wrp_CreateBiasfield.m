@@ -32,10 +32,10 @@ function xASL_wrp_CreateBiasfield(x)
     CBF_prefix = ['q' x.P.CBF];
 
     % Select the set that contains the variable Site.mat
-    if isfield(x,'SetsName')
+    if isfield(x.S,'SetsName')
         for iSet=1:length(x.S.SetsName)
             if strcmp(x.S.SetsName{iSet},'Site')
-                SiteSet  = iSet;
+                SiteSet = iSet;
             end
         end
     end
@@ -247,7 +247,7 @@ function xASL_wrp_CreateBiasfield(x)
 
     %% ------------------------------------------------------------------------------------------------------------
     %% Print reference image
-    xASL_imwrite([RefIM{1};RefIM{2};RefIM{3};RefIM{4}], fullfile(BackupDir,'Overview_biasfields.jpg') );
+    xASL_vis_Imwrite([RefIM{1};RefIM{2};RefIM{3};RefIM{4}], fullfile(BackupDir,'Overview_biasfields.jpg') );
 
     %% ------------------------------------------------------------------------------------------------------------
     %% Rescale CBF images

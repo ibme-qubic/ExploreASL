@@ -3,18 +3,40 @@ function x = xASL_adm_CreateFileReport(x, bHasFLAIR, bHasMoCo, bHasM0, bHasLongi
 %individual modules (i.e. Structural, Longiutudinal & ASL modules)
 % Provides a quick check to see what has been skipped, an whether all files
 % are present.
-% This script iterates across
+%
+% FORMAT:       x = xASL_adm_CreateFileReport(x, bHasFLAIR, bHasMoCo, bHasM0, bHasLongitudinal)
+% 
+% INPUT:        ...
+%
+% OUTPUT:       ...
+% 
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% DESCRIPTION:  Prints a summary of created files or the individual modules
+% (i.e. Structural, Longiutudinal & ASL modules). Provides a quick check to
+% see what has been skipped, an whether all files are present.
+%
+% This script iterates across:
 % Native space 1) subject and 2) session files,
 % Resampled 3) subject and 4) session files,
 % 5) Lock files and 6) QC Figure files.
 %
-% For all we perform a A) count of the files present, summarized in 
-% ileReportSummary.csv, and we B) list the missing files in
-% "Missing*.csv" files
-
-% PM: simplify/optimize this code, to make filename variable changing,
+% For all we perform a:
+%
+% - A) Count of the files present, summarized in FileReportSummary.csv
+% - B) List of the missing files in "Missing*.csv" files
+%
+% PM: Simplify/optimize this code, to make filename variable changing,
 % search within subject-directories, etc. Combine the parts searching for
-% missing & summarizing count
+% missing & summarizing count.
+%
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% EXAMPLE:      ...
+% __________________________________
+% Copyright 2015-2020 ExploreASL
+
+
+
+
 
 fclose all;
 if nargin<1
@@ -25,10 +47,9 @@ end
 % to avoid confusion when all data are nicely processed but
 % "missing_files.csv" are still showing up
 
-fprintf('\n\n');
-fprintf('%s\n','====================================================================================');
-fprintf('%s\n','Printing file reports');
-fprintf('%s\n','Check this for a summary of present & missing ExploreASL files');
+fprintf('\n%s\n','====================================================================================');
+fprintf('%s\n','Printing file reports... Check this for a summary of missing files');
+fprintf('Detected');
 
 if nargin<2 || isempty(bHasFLAIR)
     bHasFLAIR = false;
@@ -41,9 +62,9 @@ if nargin<2 || isempty(bHasFLAIR)
         end
     end
     if bHasFLAIR
-        fprintf('Detected FLAIR image(s)\n');
+        fprintf(': FLAIR ');
     else
-        fprintf('No FLAIR images detected\n');
+        fprintf(': no FLAIR ');
     end
 end
 if nargin<3 || isempty(bHasMoCo)
@@ -60,17 +81,18 @@ if nargin<3 || isempty(bHasMoCo)
         end
     end
     if bHasMoCo
-        fprintf('Detected MoCo results\n');
+        fprintf(': MoCo results ');
     else
-        fprintf('No MoCo results detected\n');
+        fprintf(': no MoCo results ');
     end
 end
 if nargin<4 || isempty(bHasM0)
     bHasM0 = false;
     iSubject = 1;
     while iSubject<=x.nSubjects && ~bHasM0 % speeds up instead of for-loop
+        CurrentSubject = iSubject;        
         for iSession=1:x.nSessions
-            if xASL_exist(fullfile(x.D.ROOT, x.SUBJECTS{iSubject}, x.SESSIONS{iSession}, 'M0.nii'))
+            if xASL_exist(fullfile(x.D.ROOT, x.SUBJECTS{CurrentSubject}, x.SESSIONS{iSession}, 'M0.nii'))
                 bHasM0 = true;
             else
                 iSubject = iSubject+1;
@@ -78,14 +100,16 @@ if nargin<4 || isempty(bHasM0)
         end
     end
     if bHasM0
-        fprintf('Detected M0 image(s)\n');
+        fprintf(': M0 ');
     else
-        fprintf('No M0 images detected\n');
+        fprintf(': no M0 ');
     end
 end
 if nargin<5 || isempty(bHasLongitudinal)
     bHasLongitudinal = false; %% THIS LONGITUDINAL PART HASNT BEEN AUTOMATED YET
 end
+
+fprintf('\n');
 
 %% Create list of longitudinal registration subjects
 LongRegSubj = '';
@@ -113,15 +137,15 @@ if bHasLongitudinal
     FileTypes{end+1} = 'LongReg';
 end
 
-LOCKDIR = fullfile(x.D.ROOT, 'lock');
+LockDir = fullfile(x.D.ROOT, 'lock');
 ReportName = fullfile(x.D.ROOT, 'FileReportSummary.csv');
 xASL_delete(ReportName);
 SummaryFid = fopen(ReportName,'wt');
 
 xASL_adm_DeleteFileList(x.D.ROOT, '^Missing_.*_files\.csv$', false, [0 Inf]);
-for iM=1:length(FileTypes)
-    FileMissing{iM} = fullfile(x.D.ROOT, ['Missing_' FileTypes{iM} '_files.csv']); 
-    SummaryFid_{iM} = fopen(FileMissing{iM},'wt');
+for iScanType=1:length(FileTypes)
+    FileMissing{iScanType} = fullfile(x.D.ROOT, ['Missing_' FileTypes{iScanType} '_files.csv']); 
+    SummaryFid_{iScanType} = fopen(FileMissing{iScanType},'wt');
 end
 
 CountMissing = [0 0 0 0 0 0 0];
@@ -226,9 +250,11 @@ end
 % FigPrefix{2}{end+1}     = {'TT'};
 % FigEndfix{2}{end+1}     = {'\.jpg'};
             
+fprintf('Checking native space: ');
+
 %% -----------------------------------------------------------------------------
 %% 1) Native space subject files (e.g. T1w, FLAIR)
-fprintf('%s\n','Counting missing native space files...  ');
+fprintf('anat files:   ');
 for iExp=1:length(NativeRegExp_SubjectLevel)
     xASL_TrackProgress(iExp,length(NativeRegExp_SubjectLevel));
     for iSubject=1:x.nSubjects
@@ -251,12 +277,12 @@ for iExp=1:length(NativeRegExp_SubjectLevel)
     end
     fprintf(SummaryFid,'%s\n', [num2str(CountMissing(1)) ' ' NativeRegExp_SubjectLevel{iExp} ' missing']);
 end
-fprintf('\n');
+fprintf(', ');
 
 
 %% -----------------------------------------------------------------------------
 %% 2) Native space session files (e.g. ASL4D.nii, M0)
-fprintf('%s\n','Checking missing native session files...  ');
+fprintf('ASL files:   ');
 for iExp=1:length(NativeRegExp_SessionLevel)
     xASL_TrackProgress(iExp,length(NativeRegExp_SessionLevel));
     for iSubject=1:x.nSubjects
@@ -283,11 +309,12 @@ for iExp=1:length(NativeRegExp_SessionLevel)
     end
     fprintf(SummaryFid,'%s\n', [num2str(CountMissing(2)) ' ' NativeRegExp_SessionLevel{iExp} ' missing']);
 end
-fprintf('\n');
+
+fprintf('\nChecking common space: ');
 
 %% -----------------------------------------------------------------------------
 %% 3) Common space subject files (e.g. rT1, rFLAIR)
-fprintf('%s\n','Checking common space subject files that were present as native space files...  ');
+fprintf('anat files:   ');
 for iPrefix=1:length(MNI_subject_prefix)
     xASL_TrackProgress(iPrefix,length(MNI_subject_prefix));
     for iSubject=1:x.nSubjects
@@ -302,11 +329,11 @@ for iPrefix=1:length(MNI_subject_prefix)
     end
     fprintf(SummaryFid,'%s\n', [num2str(CountMissing(3)) ' ' MNI_subject_prefix{iExp} ' missing in MNI']);
 end
-fprintf('\n');
+fprintf(', ');
 
 %% -----------------------------------------------------------------------------
 %% 4) Common space session files (e.g. qCBF)
-fprintf('%s\n','Checking common space session files that were present as native space files...  ');
+fprintf('ASL files:   ');
 for iPrefix=1:length(MNI_session_prefix)
     xASL_TrackProgress(iPrefix,length(MNI_session_prefix));
     for iSubject=1:x.nSubjects
@@ -324,17 +351,17 @@ for iPrefix=1:length(MNI_session_prefix)
     end
     fprintf(SummaryFid,'%s\n', [num2str(CountMissing(4)) ' ' MNI_session_prefix{iExp} ' missing in MNI']);
 end
-fprintf('\n');
+fprintf(', checking ');
 
 %% -----------------------------------------------------------------------------
 %% 5) Lock files
-fprintf('%s\n','Check missing lock files...  ');
+fprintf('lock files:   ');
 for iDIR=1:length(lockDIRS)
     xASL_TrackProgress(iDIR,length(lockDIRS));
     for iP=1:length(lockPrefix{iDIR})
         if strcmp(lockDIRS{iDIR},['xASL_module_DARTEL_' x.P.STRUCT]) || strcmp(lockDIRS{iDIR},'Population')
             % only 1 status file
-                FilePath    = fullfile(LOCKDIR, lockDIRS{iDIR}, [lockDIRS{iDIR}],[lockPrefix{iDIR}{iP} '.status']);
+                FilePath    = fullfile(LockDir, lockDIRS{iDIR}, [lockDIRS{iDIR}],[lockPrefix{iDIR}{iP} '.status']);
                 if ~exist(FilePath,'file')
                     fprintf(SummaryFid_{5},'%s\n', FilePath);
                     CountMissing(5)     = CountMissing(5)+1;
@@ -342,7 +369,7 @@ for iDIR=1:length(lockDIRS)
             
         elseif strcmp(lockDIRS{iDIR},['xASL_module_LongReg_' x.P.STRUCT]) % status files for Longitudinal Registration
                 for iSubj=1:length(LongRegSubj)
-                    FilePath = fullfile(LOCKDIR, lockDIRS{iDIR}, LongRegSubj{iSubj}, 'xASL_module_LongReg',[lockPrefix{iDIR}{iP} '.status']);
+                    FilePath = fullfile(LockDir, lockDIRS{iDIR}, LongRegSubj{iSubj}, 'xASL_module_LongReg',[lockPrefix{iDIR}{iP} '.status']);
                     if ~exist(FilePath,'file') % check subjects
                         fprintf(SummaryFid_{5},'%s\n', FilePath);
                         CountMissing(5) = CountMissing(5)+1;
@@ -352,7 +379,7 @@ for iDIR=1:length(lockDIRS)
             for iSubject=1:x.nSubjects
                 if  strcmp(lockDIRS{iDIR},'xASL_module_ASL')
                     for iSession=1:x.nSessions % check sessions
-                        FilePath = fullfile(LOCKDIR, lockDIRS{iDIR}, x.SUBJECTS{iSubject}, [lockDIRS{iDIR} '_' x.SESSIONS{iSession}],[lockPrefix{iDIR}{iP} '.status']);
+                        FilePath = fullfile(LockDir, lockDIRS{iDIR}, x.SUBJECTS{iSubject}, [lockDIRS{iDIR} '_' x.SESSIONS{iSession}],[lockPrefix{iDIR}{iP} '.status']);
                         if ~exist(FilePath,'file')
                             fprintf(SummaryFid_{5},'%s\n', FilePath);
                             CountMissing(5) = CountMissing(5)+1;
@@ -360,7 +387,7 @@ for iDIR=1:length(lockDIRS)
                     end
 
                 else
-                    FilePath = fullfile(LOCKDIR, lockDIRS{iDIR}, x.SUBJECTS{iSubject}, [lockDIRS{iDIR}],[lockPrefix{iDIR}{iP} '.status']);
+                    FilePath = fullfile(LockDir, lockDIRS{iDIR}, x.SUBJECTS{iSubject}, [lockDIRS{iDIR}],[lockPrefix{iDIR}{iP} '.status']);
                     if ~exist(FilePath,'file') % check subjects
                         fprintf(SummaryFid_{5},'%s\n', FilePath);
                         CountMissing(5) = CountMissing(5)+1;
@@ -429,7 +456,7 @@ fprintf('\n');
 %% -----------------------------------------------------------------------------
 %% 7) LongReg files (i.e. LongReg_y_T1.nii)
 if bHasLongitudinal
-    fprintf('%s\n','Counting missing longitudinal registration files...  ');
+    fprintf('%s\n','Counting longitudinal registration files:  ');
     for iExp=1:length(RegExp_LongReg)
         xASL_TrackProgress(iExp,length(RegExp_LongReg));
         for iSubj=1:length(LongRegSubj) % this will skip if there are no longitudinal scans
@@ -448,15 +475,15 @@ end
 %% Housekeeping
 
 fclose(SummaryFid);
-for iM=1:length(SummaryFid_)
-    fclose(SummaryFid_{iM});
-    if      CountMissing(iM)==0; delete(FileMissing{iM}); fprintf('%s\n',['No missing ' FileTypes{iM} ' files']);
+for iScanType=1:length(SummaryFid_)
+    fclose(SummaryFid_{iScanType});
+    if  CountMissing(iScanType)==0; delete(FileMissing{iScanType}); % fprintf('%s\n',['No missing ' FileTypes{iM} ' files']);
     else
-            fprintf('%s\n',['Please check missing ' FileTypes{iM} ' files: ' FileMissing{iM}])
+        fprintf('%s\n',['Please check missing ' FileTypes{iScanType} ' files: ' FileMissing{iScanType}])
     end
 end
 
 fprintf('%s\n','Done generating file reports');
-
+fprintf('%s\n','====================================================================================');
 
 end

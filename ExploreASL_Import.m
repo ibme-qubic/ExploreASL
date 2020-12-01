@@ -49,11 +49,12 @@ function ExploreASL_Import(imPar, bCopySingleDicoms, bUseDCMTK, bCheckPermission
 %    DICOMs SeriesName/ProtocolName.
 % 3) Once you have all DICOMs in folderstructure with identifyable names
 %    inside //MyDisk/MyStudy/raw, set up the folderstructure in
-%    ExploreASL_ImportConfig.m This setup uses the SPM form of regular
+%    ExploreASL_ImportConfig.m. This setup uses the SPM form of regular
 %    expressions, which can be daunting at first, but are very flexible.
 %    Easiest is to study other examples, before creating your own.
 %    For this example, let's say we have //MyDisk/MyStudy/raw/ScanType/SubjectName
-%    because we downloaded our data from XNAT, ordered per ScanType first, and then per subject
+%    because we downloaded our data from XNAT, ordered per ScanType first,
+%    and then per subject.
 %
 %    BRIEF EXPLANATION:
 %    Let's suppose we don't have sessions (only a single structural and functional scan per subject)
@@ -107,11 +108,11 @@ if nargin<2 || isempty(bCopySingleDicoms)
     bCopySingleDicoms = false; % by default don't copy dicoms for anonymization reasons
 end
 if nargin<5 || isempty(bRunDCM2NII)
-	bRunDCM2NII = true;
+    bRunDCM2NII = true;
 end
 if nargin<3 || isempty(bUseDCMTK)
-	bUseDCMTK = true; % default set to using DCM-TK
-elseif bUseDCMTK && isempty(which('dicomdict'))
+    bUseDCMTK = true; % default set to using DCM-TK
+elseif ~bUseDCMTK && isempty(which('dicomdict'))
     error('Dicomdict missing, image processing probably not installed, try DCMTK instead');
 end
 if nargin<4 || isempty(bCheckPermissions)
@@ -138,28 +139,28 @@ xASL_adm_CheckPermissions(dcm2niiDir, true); % dcm2nii needs to be executable
 % Initialize defaults
 %%%%%%%%%%%%%%%%%%%%%%
 if ~isfield(imPar,'bVerbose') || isempty(imPar.bVerbose)
-	imPar.bVerbose = true;
+    imPar.bVerbose = true;
 end
 if ~isfield(imPar,'bOverwrite') || isempty(imPar.bOverwrite)
-	imPar.bOverwrite  = false; % NB, the summary file will be recreated anyway and dicom conversion in temp is always done, even if dest. exists
+    imPar.bOverwrite  = false; % NB, the summary file will be recreated anyway and dicom conversion in temp is always done, even if dest. exists
 end
 if ~isfield(imPar,'visitNames') || isempty(imPar.visitNames)
-	imPar.visitNames = {};
+    imPar.visitNames = {};
 end
 if ~isfield(imPar,'nMaxVisits') || isempty(imPar.nMaxVisits)
-	imPar.nMaxVisits = 0;
+    imPar.nMaxVisits = 0;
 end
 if ~isfield(imPar,'sessionNames') || isempty(imPar.sessionNames)
-	imPar.sessionNames = {};
+    imPar.sessionNames = {};
 end
 if ~isfield(imPar,'nMaxSessions') || isempty(imPar.nMaxSessions)
-	imPar.nMaxSessions = 0;
+    imPar.nMaxSessions = 0;
 end
 if ~isfield(imPar,'dcm2nii_version') || isempty(imPar.dcm2nii_version)
-	imPar.dcm2nii_version = '20190902'; % OR for PARREC imPar.dcm2nii_version = '20101105'; THIS IS AUTOMATED BELOW
+    imPar.dcm2nii_version = '20190902'; % OR for PARREC imPar.dcm2nii_version = '20101105'; THIS IS AUTOMATED BELOW
 end
 if ~isfield(imPar,'dcmExtFilter') || isempty(imPar.dcmExtFilter)
-	imPar.dcmExtFilter = '^(.*\.dcm|.*\.img|.*\.IMA|[^.]+|.*\.\d*)$'; % the last one is because some convertors save files without extension, but there would be a dot/period before a bunch of numbers
+    imPar.dcmExtFilter = '^(.*\.dcm|.*\.img|.*\.IMA|[^.]+|.*\.\d*)$'; % the last one is because some convertors save files without extension, but there would be a dot/period before a bunch of numbers
 end
 if isempty(imPar.RawRoot)
     error('imPar.RawRoot was empty');
@@ -169,14 +170,32 @@ end
 if ~isfield(imPar,'SkipSubjectIfExists') || isempty(imPar.SkipSubjectIfExists)
     % allows to skip existing subject folders in the analysis folder, when this is set to true,
     % avoiding partly re-importing/converting dcm2niiX when processing has been partly done
-	imPar.SkipSubjectIfExists = false;
+    imPar.SkipSubjectIfExists = false;
 else
     warning('Skipping existing subjects in analysis folder');
     fprintf('If you want to overwrite, first remove the full subject folder');
 end
 
-%% Create the directory for analysis
-imPar.RawRoot = fullfile(imPar.RawRoot,imPar.studyID,'raw');
+%% Create the basic folder structure for raw & derivative data
+imPar.RawRoot = fullfile(imPar.RawRoot,imPar.studyID, 'raw'); % default name
+
+if ~exist(imPar.RawRoot, 'dir')
+    warning(['Couldnt find ' imPar.RawRoot ', trying to find a different folder instead...']);
+    
+    % find any folder except for analysis, source, raw, derivatives
+    % xASL_adm_GetFileList uses regular expressions, to create a nice list of foldernames,
+    % with/without FullPath (FPList), with/without recursive (FPListRec)
+    % very powerful once you know how these work
+    FolderNames = xASL_adm_GetFileList(fullfile(imPar.RawRoot, imPar.studyID), '^(?!(analysis|derivatives|source|raw)).*$', 'FPList', [0 Inf], true); 
+    
+    if length(FolderNames)==1
+        imPar.RawRoot = FolderNames{1};
+        fprintf('%s\n', ['Found ' imPar.RawRoot ' as raw folder']);
+    else
+        error('Couldnt find a raw folder, please rename one, or move other folders');
+    end
+end
+
 imPar.AnalysisRoot = fullfile(imPar.AnalysisRoot,imPar.studyID,'analysis');
 imPar.SourceRoot = fullfile(imPar.AnalysisRoot,imPar.studyID,'source');
 
@@ -422,7 +441,6 @@ for iSubject=1:nSubjects
                 if imPar.bVerbose; fprintf('>>> Subject=%s, visit=%s, session=%s, scan=%s\n',subjectID, visitID, num2str(iSession), scan_name); end
 
                 bOneScanIsEnough = false; % default
-                CreateParmsMat = true; % ParmsMat are only required for ASL, later we can phase this out to BIDS as well
                 bPutInSessionFolder = true; % by default put in session folder
                 switch scan_name
                     case {'ASL4D', 'M0', 'ASL4D_RevPE', 'func_bold'}
@@ -433,9 +451,6 @@ for iSubject=1:nSubjects
 
                 if ~isempty(strfind(char(imPar.folderHierarchy(end)),'PAR'))
                     imPar.dcm2nii_version = '20101105';
-                elseif ~isempty(strfind(scan_name, 'ASL4D')) || ~isempty(strfind(scan_name, 'M0'))
-                    imPar.dcm2nii_version = '20181125';
-                    % for everything other than ASL data, use the recent dcm2niiX to obtain BIDS-compliant data
                 end
 
                 % now pick the matching one from the folder list
@@ -528,12 +543,19 @@ for iSubject=1:nSubjects
                         end
                     end
 
-                    %% Merge NIfTIs if there are multiple for ASL only
-                    % check the number of created nifiti files in case of ASL: control and label should be merged as one 4D
-                    if length(nii_files)>1 && ~isempty(strfind(scan_name,'ASL4D'))
-                        nii_files = merge_2_ASL_nii_files(nii_files, scan_name);
-                    end
-
+                    %% Merge NIfTIs if there are multiples
+					if length(nii_files)>1
+						1;
+					end
+					% For ASL or M0, merge multiple files
+					if length(nii_files)>1 
+						if ~isempty(strfind(scan_name,'ASL4D'))
+							nii_files = xASL_bids_MergeNifti(nii_files,'ASL');
+						elseif  ~isempty(strfind(scan_name,'M0'))
+							nii_files = xASL_bids_MergeNifti(nii_files,'M0');
+						end
+					end
+					
                     % Extract relevant parameters from nifti header and append to summary file
                     summary_line = AppendNiftiParameters(nii_files);
                     converted_scans(iSubject,iSession,iScan) = 1;
@@ -541,33 +563,42 @@ for iSubject=1:nSubjects
 
                 % extract relevant parameters from dicom header, if not
                 % already exists
-                SaveParmsPath = fullfile(destdir, [scan_name '_parms.mat']);
-                if exist(SaveParmsPath,'file')
-                    CreateParmsMat = false;
+                % Find JSONpath that is there already
+                SavePathJSON = {};
+                SavePathJSON{1} = fullfile(destdir, [scan_name '.json']);
+                SavePathJSON{2} = fullfile(destdir, [session_name '.json']);
+                for iPath=1:length(nii_files)
+                    % now we add the path only if it didnt exist already in this list
+					tmpNewPath = [nii_files{iPath}(1:end-4) '.json'];
+                    if ~max(cellfun(@(y) strcmp(y, tmpNewPath), SavePathJSON))
+                        SavePathJSON{end+1} = tmpNewPath;
+                    end
                 end
 
-                if CreateParmsMat && ~isempty(first_match)
-                    [~, ~, fext] = fileparts(first_match);
-                    if  strcmpi(fext,'.PAR')
-                        parms = xASL_adm_Par2Parms(first_match, SaveParmsPath, imPar.bOverwrite);
-                    elseif strcmpi(fext,'.nii')
-                        parms = [];
-                    elseif imPar.bMatchDirectories
-                        Fpath  = fileparts(first_match);
-                        [parms, pathDcmDict] = xASL_adm_Dicom2Parms(imPar, Fpath, SaveParmsPath, imPar.dcmExtFilter, bUseDCMTK, pathDcmDict);
-                        clear Fpath Ffile Fext
-                    else
-                        [parms, pathDcmDict] = xASL_adm_Dicom2Parms(imPar, first_match, SaveParmsPath, imPar.dcmExtFilter, bUseDCMTK, pathDcmDict);
+                for iPath=1:length(SavePathJSON)
+                    if exist(SavePathJSON{iPath}, 'file') && ~isempty(first_match)
+                        [~, ~, fext] = fileparts(first_match);
+                        if  strcmpi(fext,'.PAR')
+                            parms = xASL_adm_Par2Parms(first_match, SavePathJSON{iPath});
+                        elseif strcmpi(fext,'.nii')
+                            parms = [];
+                        elseif imPar.bMatchDirectories
+                            Fpath  = fileparts(first_match);
+                            [parms, pathDcmDict] = xASL_bids_Dicom2JSON(imPar, Fpath, SavePathJSON{iPath}, imPar.dcmExtFilter, bUseDCMTK, pathDcmDict);
+                            clear Fpath Ffile Fext
+                        else
+                            [parms, pathDcmDict] = xASL_bids_Dicom2JSON(imPar, first_match, SavePathJSON{iPath}, imPar.dcmExtFilter, bUseDCMTK, pathDcmDict);
+                        end
                     end
                 end
 
                 % correct nifti rescale slope if parms.RescaleSlopeOriginal =~1
                 % but nii.dat.scl_slope==1 (this can happen in case of
                 % hidden scale slopes in private Philips header,
-                % that is delt with by dicom2parms but not by
-                % dcm2nii
+                % that is dealt with by xASL_bids_Dicom2JSON but not by
+                % dcm2niiX
 
-                if CreateParmsMat && ~isempty(nii_files) && exist('parms','var')
+                if ~isempty(nii_files) && exist('parms','var')
                     [TempLine, PrintDICOMFields] = AppendParmsParameters(parms);
                     summary_line = [summary_line TempLine];
                 end
@@ -629,7 +660,7 @@ for iScan=1:nScans
         for iVisit=1:nVisits
             for iSession=1:nSessions
                 if converted_scans(iSubject, iVisit, iSession, iScan) || skipped_scans(iSubject, iVisit, iSession, iScan) || missing_scans(iSubject, iVisit, iSession, iScan)
-                    fprintf(fid_summary,'"%s","%s","%s","%s","%s",\n', subjectIDs{iSubject}, visitIDs{iVisit}, imPar.sessionNames{iSession}, scanNames{iScan}, summary_lines{iSubject, iVisit, iSession, iScan});
+                    fprintf(fid_summary,'"%s","%s","%s","%s"%s,\n', subjectIDs{iSubject}, visitIDs{iVisit}, imPar.sessionNames{iSession}, scanNames{iScan}, summary_lines{iSubject, iVisit, iSession, iScan});
                 end
             end
         end
@@ -679,7 +710,7 @@ fclose(fid_summary);
 
 % cleanup
 if ~bUseDCMTK || isempty(pathDcmDict)
-	dicomdict('factory');
+    dicomdict('factory');
 end
 diary('off');
 
@@ -705,16 +736,16 @@ function s = AppendNiftiParameters(nii_files)
 s = [];
 
 if ischar(nii_files)
-	nii_files = {nii_files};
+    nii_files = {nii_files};
 end
 
 for iNii=1:length(nii_files)
-	[~, Ffile, Fext] = fileparts(nii_files{iNii});
-	s = sprintf(',"%s"', [Ffile Fext]); % filename
+    [~, Ffile, Fext] = fileparts(nii_files{iNii});
+    s = sprintf(',"%s"', [Ffile Fext]); % filename
 
-	tempnii = xASL_io_ReadNifti(nii_files{iNii});
-	s = [s sprintf(',%g', tempnii.hdr.pixdim(2:5) )]; % voxel size XYZ
-	s = [s sprintf(',%g', tempnii.hdr.dim(2:5) )]; % matrix size XYZ
+    tempnii = xASL_io_ReadNifti(nii_files{iNii});
+    s = [s sprintf(',%g', tempnii.hdr.pixdim(2:5) )]; % voxel size XYZ
+    s = [s sprintf(',%g', tempnii.hdr.dim(2:5) )]; % matrix size XYZ
 end
 end
 
@@ -741,66 +772,6 @@ end
     
 end
 
-% -----------------------------------------------------------------------------
-%
-% -----------------------------------------------------------------------------
-function nii_files = merge_2_ASL_nii_files(nii_files, basename)
-% merge_2_ASL_nii_files
-% CAVE: deletes original files
-
-if length(nii_files)>1
-    fprintf('Warning EXPLOREASL_IMPORT: concatenating multiple NIfTIs & jsons as output from dcm2niiX\n');
-    % First curate the JSONs
-    Fpath = fileparts(nii_files{1});
-    JSONlist = xASL_adm_GetFileList(Fpath,'^ASL4D.*\.json$','FPList',[0 Inf]);
-    if length(JSONlist)>1
-        xASL_Move(JSONlist{1}, fullfile(Fpath, 'ASL4D.json'));
-        for iFile=2:length(JSONlist)
-            xASL_delete(JSONlist{iFile});
-        end
-    end
-    
-    % First rename the NIfTI files to 4 digit format & sort them
-    % this avoids 1 10 2 issues
-    for iFile=1:length(nii_files)
-        [Fpath, Ffile, Fext] = xASL_fileparts(nii_files{iFile});
-        [iStart, iEnd] = regexp(Ffile,'\d*$');
-        FfileNew = [Ffile(1:iStart-1) sprintf('%04d', str2num(Ffile(iStart:iEnd)))];
-        PathNew = fullfile(Fpath, [FfileNew Fext]);
-        xASL_Move(nii_files{iFile}, PathNew);
-        nii_files{iFile} = PathNew;
-    end
-    
-    nii_files = sort(nii_files);
-    
-    % Then create image
-    % Here we issue a warning for dimensionality>4
-    for iFile=1:length(nii_files)
-        tempIM = xASL_io_Nifti2Im(nii_files{iFile});
-        if length(size(tempIM))>4
-            error('Dimensionality incorrect for this ASL NIfTI file');
-        end
-        if iFile==1
-            IM = tempIM;
-        else
-            IM(:,:,:,end+1:end+size(tempIM,4)) = tempIM;
-        end
-    end
-    
-    NewNIfTI = fullfile(fileparts(nii_files{1}), 'ASL4D.nii');
-    xASL_io_SaveNifti(nii_files{1}, NewNIfTI, IM, [], 0);
-    
-    for iFile=1:length(nii_files)
-        xASL_delete(nii_files{iFile});
-    end
-    
-    fprintf('Corrected dcm2niiX output for\n');
-    fprintf('%s\n', NewNIfTI);
-    
-    nii_files = {NewNIfTI};
-end
-
-end
 
 
 % -----------------------------------------------------------------------------

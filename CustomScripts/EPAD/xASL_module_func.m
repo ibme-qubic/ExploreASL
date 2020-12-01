@@ -1,15 +1,43 @@
-function [result x] = xASL_module_func(x)
-% $Rev:: 475                   $:  Revision of last commit
-% $Author:: hjmutsaerts        $:  Author of last commit
-% $Date:: 2017-03-21 13:12:48 #$:  Date of last commit
+function [result, x] = xASL_module_func(x)
+%xASL_module_func ExploreASL module for fMRI/func pre-processing
+%
+% FORMAT: [result, x] = xASL_module_func(x)
+%
+% INPUT:
+%   x  - x structure containing all input parameters (REQUIRED)
+%   x.SUBJECTDIR  -  anatomical directory, containing the derivatives of anatomical images (REQUIRED)
+%   x.SESSIONDIR  -  ASL directory, containing the derivatives of perfusion images (REQUIRED)
+%
+%
+% OUTPUT:
+%   result  - true for successful run of this module, false for insuccessful run
+%   x       - x structure containing all output parameters (REQUIRED)
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% DESCRIPTION: This ExploreASL module processes fMRI
+% images, this module is created 'quick and dirty' from the ExploreASL ASL
+% module. It works and has tested with EPAD data, after initial import, but
+% use for own risk in other circumstances.
+%
+% This module has the following submodules/wrappers:
+%
+% 1    TopUp
+% 2    Motion correction fMRI
+% 3    Registration fMRI sessions to T1w
+% 4    Reslice fMRI data
+% 5    Visual check
+% 6    QC
+% 7    WAD-QC
+%
+% EXAMPLE: [~, x] = xASL_module_func(x);
+% -----------------------------------------------------------------------------------------------------------------------------------------------------
+% Copyright 2015-2020 ExploreASL
 
-%% fMRI module of ExploreASL Paul, Matthan, Henk-Jan
 
 
-%% 0. INPUT
 
-
-x = xASL_init_GenericMutexModules(x, 'func'); % starts mutex locking process to ensure that everything will run only once
+%% -----------------------------------------------------------------------------
+%% 0    Admin
+x = xASL_init_InitializeMutex(x, 'func'); % starts mutex locking process to ensure that everything will run only once
 result = false;
 
 if ~isfield(x,'SavefMRI')
@@ -48,6 +76,8 @@ x.P.Path_despiked_func_bold = fullfile(x.SESSIONDIR, 'despiked_func_run-1_bold.n
 x.P.Path_despiked_func_bold_mat = fullfile(x.SESSIONDIR, 'despiked_func_run-1_bold.mat');
 x.P.Path_func_bold_parms_mat = fullfile(x.SESSIONDIR, 'func_run-1_bold_parms.mat');
 
+PathField = fullfile(x.SESSIONDIR ,'Field.nii');
+PathFieldCoef = fullfile(x.SESSIONDIR ,'TopUp_fieldcoef.nii');
 PathB0 = fullfile(x.SESSIONDIR ,'B0.nii');
 PathUnwarped = fullfile(x.SESSIONDIR ,'Unwarped.nii');
 PathPopB0 = fullfile(x.D.PopDir, ['rFunc_B0_' x.SUBJECTS{x.iSubject} '.nii']);
@@ -103,7 +133,7 @@ end
 
 %% -----------------------------------------------------------------------------
 %% 1    TopUp
-if ~x.mutex.HasState('010_TopUp_func') || ~xASL_exist(fullfile(x.SESSIONDIR,'TopUp_fieldcoef.nii'),'file')
+if ~x.mutex.HasState('010_TopUp_func') || ~xASL_exist(PathFieldCoef, 'file')
     
     bSuccess = xASL_fsl_TopUp(x.SESSIONDIR, 'func', x, x.P.Path_func_bold);
 
@@ -141,7 +171,8 @@ else
 
         if  nVol>1
             % Before motion correction, we align the images with ACPC
-            xASL_im_CenterOfMass(x.P.Path_func_bold);
+            OtherList = {x.P.Path_func_bold_ORI, PathB0, PathUnwarped, x.P.Path_func_NormPE, x.P.Path_func_RevPE, PathField, PathFieldCoef};
+            xASL_im_CenterOfMass(x.P.Path_func_bold, OtherList, 10);
 
             % Run motion Correction
             xASL_wrp_RealignASL(x, false); % same as ASL, but no subtraction/pairwise data
@@ -240,17 +271,19 @@ if ~x.mutex.HasState('050_visualize')
         end
         % visualize
         Parms.ModuleName = 'func';
-        Parms.IM      = xASL_im_CreateVisualFig( x, ImIn{iM}, DirOut{iM}, x.V.IntScale{iM}, x.V.NameExt{iM}, x.V.ColorMapIs{iM});
+        Parms.IM      = xASL_vis_CreateVisualFig( x, ImIn{iM}, DirOut{iM}, x.V.IntScale{iM}, x.V.NameExt{iM}, x.V.ColorMapIs{iM});
         % add single slice to QC collection
         if  sum(~isnan(Parms.IM(:)))>0 % if image is not empty
-            x   = xASL_im_AddIM2QC(x,Parms);
+            x   = xASL_vis_AddIM2QC(x,Parms);
         end
     end
+    fprintf('\n');
 
+    %% Visualization TopUp results (quick & dirty)
     if xASL_exist(PathPopB0,'file') && xASL_exist(PathPopUnwarped,'file')% if we have TopUp results
-        [Output1, Output2] = xASL_im_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, x.iSubject, x.D.FuncCheckDir);
-        x.Output.func(x.iSubjectSession).MeanAI_PreTopUp_Perc = Output1;
-        x.Output.func(x.iSubjectSession).MeanAI_PostTopUp_Perc = Output2;
+        [Output1, Output2] = xASL_vis_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, x.iSubject, x.D.FuncCheckDir);
+        x.Output.func.MeanAI_PreTopUp_Perc = Output1;
+        x.Output.func.MeanAI_PostTopUp_Perc = Output2;
         xASL_delete(PathPopB0);
         xASL_delete(PathPopUnwarped);
     end
@@ -262,7 +295,8 @@ if ~x.mutex.HasState('050_visualize')
 elseif  bO; fprintf('%s\n','050_visualize has already been performed, skipping...');
 end
 
-%% QC SPM UP (Utility Plus)
+%% -----------------------------------------------------------------------------
+%% 6    QC
 
 if ~x.mutex.HasState('060_QC')
     x = xASL_adm_LoadX(x, PathX, true); % assume x.mat is newer than x
@@ -292,10 +326,10 @@ if ~x.mutex.HasState('060_QC')
         end
     end
 
-    x = xASL_qc_CollectParameters(x, x.iSubject, 'func');
-
     xASL_qc_PrintOrientation(x.SESSIONDIR, x.P.Path_func_bold, x.SESSIONDIR, 'RigidRegfunc');
     % This function summarizes the func orientation. Especially check the determinant, for left-right flips    
+
+    x = xASL_qc_CollectParameters(x, x.iSubject, 'func');
     
     xASL_delete(PathX);
     save(PathX,'x');
@@ -308,7 +342,7 @@ end
 %% -----------------------------------------------------------------------------
 %% 7    WAD-QC
 if ~x.mutex.HasState('070_WADQC') && x.DoWADQCDC
-    xASL_qc_WADQCDC(x, x.iSubj, 'func');
+    xASL_qc_WADQCDC(x, x.iSubject, 'func');
     x.mutex.AddState('070_WADQC');
 elseif x.mutex.HasState('070_WADQC') && bO
     fprintf('%s\n', '070_WADQC has already been performed, skipping...');

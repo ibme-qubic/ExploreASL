@@ -43,6 +43,7 @@ imPar.RawRoot = fpath;
 imPar.folderHierarchy = {}; % must define this per study; use a cell array of regular expressions. One cell per directory level.
 imPar.tokenOrdering = []; % must match imPar.folderHierarchy: 1==subject, 2=visit, 3==session, 4==scan (if visit or session are omitted, they will be skipped)
 imPar.tokenScanAliases = [];
+impar.tokenVisitAliases = [];
 imPar.tokenSessionAliases = [];
 imPar.bMatchDirectories  = false;
 
@@ -51,6 +52,14 @@ imPar.bMatchDirectories  = false;
 % -----------------------------------------------------------------------------
 switch imPar.studyID
 
+	case 'TimFit'
+		imPar.folderHierarchy = {'^(SUB\d{3})_(1|2)$' '(T1_MPRAGE|T2.*FL|SS.*TI5000_0005|PERFUSION_WEIGHTED).*'};
+		imPar.tokenOrdering = [1 2 0 3];
+		imPar.tokenSessionAliases = {};
+        imPar.tokenVisitAliases = {'1', '_1'; '2', '_2'};
+		imPar.tokenScanAliases = {'^T1_MPRAGE$', 'T1'; '^T2.*FL$', 'FLAIR'; '^SS.*TI5000_0005$', 'M0'; 'PERFUSION_WEIGHTED', 'ASL_1'};
+		imPar.bMatchDirectories = true;
+    
 	case 'Insight46'
 		imPar.folderHierarchy = {'^dthomas-(\d*_\d*)' '(t1_mprage|t2.*fl.*|pgrs.*4000|pgrs.*1s)'};
 		imPar.tokenOrdering = [1 0 0 2];
@@ -828,6 +837,23 @@ switch imPar.studyID
         imPar.tokenOrdering = [1 0 2];
         imPar.tokenSessionAliases = {'',''};
         imPar.tokenScanAliases = {'^pseudo_nocrush$','ASL4D';'^T2_TRA$', 'T1'}; 
+        imPar.bMatchDirectories = true;
+        
+    case 'ADNI'
+        imPar.folderHierarchy = {'^(\d{3}_S_\d{4}).*', '^(ASL_PERFUSION)$', '^(\d{4}.*)$', '^S.*'}; % Test with ADNI data
+        imPar.tokenOrdering = [1 3 0 2]; % subject visit session scantype
+        imPar.tokenScanAliases = {'^ASL_PERFUSION$','ASL4D';'^MPRAGE$', 'T1'};
+        imPar.tokenVisitAliases = {'^2010$','ASL4D';'^1$'};
+        imPar.bMatchDirectories = true;
+    
+    case 'incoming' % Default single participant
+        imPar.folderHierarchy = {'^(sub).*$', '^(visit).*$', '^(ASL|T1|FLAIR|M0)'}; % Test with docker data
+        imPar.tokenOrdering = [1 2 3]; % subject visit session scantype
+        imPar.tokenScanAliases = {'^ASL$','ASL4D';'^T1$', 'T1';'^FLAIR$', 'FLAIR'; '^M0$', 'M0'};
+		for iToken=1:30
+			imPar.tokenVisitAliases{iToken,1} = num2str(iToken);
+			imPar.tokenVisitAliases{iToken,2} = ['_' num2str(iToken)];
+		end
         imPar.bMatchDirectories = true;
 
 	otherwise % by default, append study ID and raw (or analysis) to the roots

@@ -4,15 +4,19 @@ function xASL_wrp_VisualQC_ASL(x)
 % FORMAT: xASL_wrp_VisualQC_ASL(x)
 %
 % INPUT:
-%   x 	    - structure containing fields with all information required to run this submodule (REQUIRED)
-%   x.P     - paths with NIfTIs for which this function should be applied to (REQUIRED)
+%   x                 - structure containing fields with all information required to run this submodule (REQUIRED)
+%   x.P               - paths with NIfTIs for which this function should be applied to (REQUIRED)
+%   x.MakeNIfTI4DICOM - Boolean, true for resampling CBF native space to
+%                       original T1w & ASL spaces, and other processing for use in
+%                       DICOM image/server (OPTIONAL, DEFAULT=false);
 %
 % OUTPUT: n/a
 %
 % -----------------------------------------------------------------------------------------------------------------------------------------------------
 % DESCRIPTION: This submodule performs several visualizations for visual & quantitative QC.
 %              1) After initial admin
-%              2) It starts with making ASL NIfTIs ready for visualization & conversion to DICOM
+%              2) It starts with making ASL NIfTIs ready for visualization
+%                 & conversion to DICOM (though skipped by default)
 %              3) Then it performs a collection of visualizations
 %              4) Visualizes results of the TopUp geometric distortion correction
 %              5) Visualization of slice gradient
@@ -40,32 +44,31 @@ nVolumes = double(tempnii.hdr.dim(5));
 fprintf('%s\n','print visual quality assurance checks');
 Parms.ModuleName = 'ASL';
 close all % close all Figures to avoid capturing & saving the wrong Figure
-PathX = fullfile(x.SUBJECTDIR,'x.mat');
-x = xASL_adm_LoadX(x, PathX, true); % assume x.mat is newer than x
 
-% Clear any previous QC images
-if isfield(x,'Output_im') && isfield(x.Output_im,'ASL')
-   x.Output_im = rmfield(x.Output_im,'ASL');
-end
-if isfield(x,'Output') && isfield(x.Output,'ASL')
-   x.Output = rmfield(x.Output,'ASL');
-end
+x = xASL_adm_LoadX(x, [], true); % assume x.mat is newer than x
 
 %% -----------------------------------------------------------------------------------
 %% 2) Make ASL NIfTIs ready for visualization & conversion to DICOM
-if xASL_exist(x.P.Path_T1_ORI, 'file')
-    InputT1Oripath = x.P.Path_T1_ORI;
-else
-    InputT1Oripath = x.P.Path_T1;
-end
-   
-xASL_io_MakeNifti4DICOM(x.P.Path_CBF, x, 'UINT16', 1, x.P.Path_T1); % Create uint16 NIfTI in 12 bit scale
-% xASL_io_MakeNifti4DICOM(x.P.Pop_Path_qCBF, x);
+if isfield(x,'MakeNIfTI4DICOM') && x.MakeNIfTI4DICOM
+    if xASL_exist(x.P.Path_T1_ORI, 'file')
+        InputT1Oripath = x.P.Path_T1_ORI;
+    else
+        InputT1Oripath = x.P.Path_T1;
+    end
 
+    if xASL_exist(x.P.Path_ASL4D_ORI, 'file')
+        InputASLOripath = x.P.Path_ASL4D_ORI;
+    else
+        InputASLOripath = x.P.Path_ASL4D;
+    end
+
+    xASL_io_MakeNifti4DICOM(x.P.Path_CBF, x, 'UINT16', x.P.Path_T1, InputT1Oripath);
+    xASL_io_MakeNifti4DICOM(x.P.Path_CBF, x, 'UINT16', x.P.Path_ASL4D, InputASLOripath); 
+end
 
 %% -----------------------------------------------------------------------------------
 %% 3) Perform several visualizations
-x = xASL_wrp_VisualCheckCollective_ASL(x);
+x = xASL_qc_VisualCheckCollective_ASL(x);
 
 %% -----------------------------------------------------------------------------------
 %% 4) Visualization TopUp results (quick & dirty)
@@ -73,7 +76,7 @@ PathPopB0 = fullfile(x.D.PopDir, ['rASL_B0_' x.P.SubjectID '_' x.P.SessionID '.n
 PathPopUnwarped = fullfile(x.D.PopDir, ['rASL_Unwarped_' x.P.SubjectID '_' x.P.SessionID '.nii']);
 
 if xASL_exist(PathPopB0,'file') && xASL_exist(PathPopUnwarped,'file')% if we have TopUp results
-    [Output1, Output2] = xASL_im_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, x.iSubject, x.D.ASLCheckDir);
+    [Output1, Output2] = xASL_vis_VisualQC_TopUp(PathPopB0, PathPopUnwarped, x, x.iSubject, x.D.ASLCheckDir);
     x.Output.ASL.MeanAI_PreTopUp_Perc = Output1;
     x.Output.ASL.MeanAI_PostTopUp_Perc = Output2;
     xASL_delete(PathPopB0);
@@ -98,9 +101,9 @@ WB = logical(xASL_io_Nifti2Im(fullfile(x.D.MapsSPMmodifiedDir, 'brainmask.nii'))
 SliceMask = xASL_io_Nifti2Im(x.P.Pop_Path_SliceGradient)~=0;
 T1template = fullfile(x.D.MapsSPMmodifiedDir, 'rT1.nii');
 
-IM1 = xASL_im_CreateVisualFig(x, T1template, [], [], [], [], [], WB, true);
-IM2 = xASL_im_CreateVisualFig(x, x.P.Pop_Path_SliceGradient, [], [], [], x.S.jet256, [], SliceMask, true);
-IM3 = xASL_im_CreateVisualFig(x, {T1template x.P.Pop_Path_SliceGradient}, [],[0.65 0.6],[],{x.S.gray,x.S.jet256},[],{WB SliceMask},true);
+IM1 = xASL_vis_CreateVisualFig(x, T1template, [], [], [], [], [], WB, true);
+IM2 = xASL_vis_CreateVisualFig(x, x.P.Pop_Path_SliceGradient, [], [], [], x.S.jet256, [], SliceMask, true);
+IM3 = xASL_vis_CreateVisualFig(x, {T1template x.P.Pop_Path_SliceGradient}, [],[0.65 0.6],[],{x.S.gray,x.S.jet256},[],{WB SliceMask},true);
 
 Parms.IM = [IM1;IM2;IM3];
 
@@ -108,7 +111,7 @@ xASL_adm_CreateDir(x.D.SliceCheckDir);
 OutputFile = fullfile(x.D.SliceCheckDir,['SliceGradient' x.P.SubjectID '_' x.P.SessionID '.jpg']);
 xASL_delete(OutputFile);
 if sum(isfinite(Parms.IM(:)))>100
-    xASL_imwrite(Parms.IM,OutputFile);
+    xASL_vis_Imwrite(Parms.IM,OutputFile);
 end
 
 %% -----------------------------------------------------------------------------------
@@ -154,11 +157,135 @@ end
 %% 8) Summarize ASL orientation & check for left-right flips
 xASL_qc_PrintOrientation(x.SESSIONDIR, x.P.Path_ASL4D, x.SESSIONDIR, 'RigidRegASL');
 
-
 %% 9) Collect several other parameters & store all in PDF overview
 x = xASL_qc_CollectParameters(x, x.iSubject, 'ASL'); % Quick & Dirty solution, 0 == skip structural part
-xASL_delete(PathX);
-save(PathX,'x'); % future: do this in each xWrapper
+
+xASL_adm_SaveX(x); % future: do this in each xWrapper
 xASL_qc_CreatePDF(x, x.iSubject);
 
+end
+
+
+
+
+%% *****************************************************************************************************************
+
+function x = xASL_qc_VisualCheckCollective_ASL(x)
+%xASL_qc_VisualCheckCollective_ASL Runs a collection of visual QC functions
+
+
+%% Get visualization settings
+% Parameters for creating visual QC Figures:
+% CBF, CBF with overlay c2T1, CBF with overlay c2T1
+% MeanControl SD
+% M0 NoSmoothM0 NoSmoothM0 with overlay c1T1
+% TT TT with overlay c2T1
+
+x               = xASL_adm_ResetVisualizationSlices(x);
+
+T.ImIn          = {x.P.Pop_Path_qCBF  x.P.Pop_Path_SD {x.P.Pop_Path_qCBF x.P.Pop_Path_PV_pWM} x.P.Pop_Path_SNR};
+T.ImIn(5:8)     = {x.P.Pop_Path_mean_control x.P.Pop_Path_noSmooth_M0 {x.P.Pop_Path_noSmooth_M0 x.P.Pop_Path_PV_pGM} x.P.Pop_Path_M0};
+T.ImIn(9:10)    = {x.P.Pop_Path_TT  {x.P.Pop_Path_TT x.P.Pop_Path_PV_pWM}};
+
+T.DirOut        = {x.D.ASLCheckDir x.D.SNRdir      x.D.ASLCheckDir       x.D.SNRdir};
+T.DirOut(5:8)   = {x.D.RawDir      x.D.M0CheckDir  x.D.M0regASLdir       x.D.M0CheckDir};
+T.DirOut(9:11)  = {x.D.TTCheckDir  x.D.TTCheckDir  x.D.ASLCheckDir};
+
+T.IntScale(2)   = {[1 1]};
+T.IntScale{8}   = [0.75 0.65];
+
+T.ColorMapIs{10}= x.S.jet256;
+T.ColorMapIs{11}= {x.S.jet256};
+
+T.NameExt       = {[] [] 'Reg_pWM' []};
+T.NameExt( 5:8) = {[] [] 'Reg_pGM' []};
+T.NameExt(9:11) = {[] 'Reg_pWM' 'AnalysisMask'};
+
+% Fill missing cells
+Pars = {'ImIn' 'DirOut' 'ClipZero' 'IntScale' 'NameExt' 'ColorMapIs'}; % default pars
+for iM=1:length(T.ImIn)
+    for iP=1:length(Pars)
+        if ~isfield(T,Pars{iP})
+            T.(Pars{iP}) = [];
+        elseif length(T.(Pars{iP}))<iM
+            T.(Pars{iP}){iM} = [];
+        end
+    end
+end
+
+%% Take only NIfTIs that exist
+for iL=1:length(T.ImIn)
+    if  ischar(T.ImIn{iL})
+        ExistInd(iL) = logical(xASL_exist(T.ImIn{iL},'file'));
+    else
+        ExistInd(iL) = min(cellfun(@(x) logical(xASL_exist(char(x),'file')),T.ImIn{iL}));
+    end
+end
+        
+for iP=1:length(Pars)
+    T.(Pars{iP}) = T.(Pars{iP})(ExistInd);
+end
+
+%% Clone each row into a transversal & coronal row
+nIms = length(T.(Pars{1}));
+nRows = ceil( nIms/4);
+
+for iN=1:nRows
+    clear T2
+    ImsI                    = (iN-1)*4+1:min(nIms,iN*4);
+    nImsRow                 = length(ImsI);
+    nRow1                   = 1:nImsRow;
+    nRow2                   = nImsRow+1:2*nImsRow;
+    T2.TraSlices(nRow1)     = {[]};
+    T2.TraSlices(nRow2)     = {'n/a'};
+    T2.CorSlices(nRow1)     = {'n/a'};
+    T2.CorSlices(nRow2)     = {[]};
+
+    T2.NameExt(nRow1)       = cellfun(@(x) ['Tra_' x], T.NameExt(ImsI), 'UniformOutput',false);
+    T2.NameExt(nRow2)       = cellfun(@(x) ['Cor_' x], T.NameExt(ImsI), 'UniformOutput',false);
+    T2.ImIn                 = [T.ImIn(ImsI) T.ImIn(ImsI)];
+    T2.DirOut               = [T.DirOut(ImsI) T.DirOut(ImsI)];
+    T2.IntScale             = [T.IntScale(ImsI) T.IntScale(ImsI)];
+    T2.ColorMapIs           = [T.ColorMapIs(ImsI) T.ColorMapIs(ImsI)];
+    T2.ModuleName           = 'ASL';
+
+%%  Perform the visualization
+% Perhaps at the end of the row we need to generate empty images, as transversal & coronal have different sizes
+% they don't concatenate well horizontally, need to be concatenated vertically
+
+    fprintf('%s','Printing images...  ');
+    for iM=1:length(T2.ImIn)
+        xASL_TrackProgress(iM,length(T2.ImIn)*nRows);
+
+        % Manage slices to show
+        % Sagittal
+        x.S.SagSlices   = []; % show no sagittal slices
+        % Transversal
+        if      isempty(T2.TraSlices{iM})
+                x.S.TraSlices   = x.S.slicesLarge;
+        elseif  strcmp(T2.TraSlices{iM},'n/a')
+                x.S.TraSlices   = [];
+        else
+                warning('Wrong slice choice');
+        end
+        % Coronal
+        if      isempty(T2.CorSlices{iM})
+                x.S.CorSlices   = x.S.slicesLarge+7;
+        elseif  strcmp(T2.CorSlices{iM},'n/a')
+                x.S.CorSlices   = [];
+        else
+                warning('Wrong slice choice');
+        end    
+
+        % Create the image
+        T2.IM = xASL_vis_CreateVisualFig( x, T2.ImIn{iM}, T2.DirOut{iM}, T2.IntScale{iM}, T2.NameExt{iM}, T2.ColorMapIs{iM});
+        % add single slice to QC collection
+        if sum(~isnan(T2.IM(:)))>0 % if image is not empty
+            x = xASL_vis_AddIM2QC(x,T2);
+        end
+    end
+end
+
+fprintf('\n');
+   
 end

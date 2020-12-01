@@ -10,6 +10,7 @@ function xASL_adm_ImportBaMoS(AnalysisDir, BaMoSDir, bPullPush, RegExp)
 %   bPullPush   - whether to create the subject list from the AnalysisDir
 %                 (false, pull) or from the BaMoSdir (true, push) (OPTIONAL,
 %                 DEFAULT=false)
+%   RegExp      - regular expression for the SubjectID (REQUIRED)
 %
 % OUTPUT: n/a
 % OUTPUT FILE:
@@ -39,6 +40,14 @@ end
 FLAIRdir = fullfile(BaMoSDir,'FLAIR_T1Space');
 LesionDir = fullfile(BaMoSDir,'Lesions');
 
+% Adjust the regular expression
+if strcmp(RegExp(1),'^')
+    RegExp = RegExp(2:end);
+end
+if strcmp(RegExp(end),'$')
+    RegExp = RegExp(1:end-1);
+end
+
 if bPullPush==0 % pull
     % use list from AnalysisDir, assuming that this contains the correct
     % subject names described by RegExp
@@ -52,6 +61,10 @@ else % push
     end
 end
     
+if isempty(SubjList)
+    error('No subjects found');
+end
+
 NoFLAIRList = struct;
 TooManyFLAIRList = struct;
 NoWMHList = struct;
@@ -95,13 +108,18 @@ for iSubj=1:length(SubjList)
     end
 end
 
+fprintf('\n');
+
 %% SAVE THE MISSING LIST HERE IN JSON FILES
 ListsAre = {'NoFLAIRList' 'TooManyFLAIRList' 'NoWMHList' 'TooManyWMHList'};
 for iList=1:length(ListsAre)
-    if ~isempty(ListsAre{iList})
-        SavePath = fullfile(AnalysisDir, ListsAre{iList});
+    if isstruct(eval(ListsAre{iList})) && ~isempty(fields(eval(ListsAre{iList})))
+        SavePath = fullfile(AnalysisDir, [ListsAre{iList} '.json']);
         xASL_delete(SavePath);
         xASL_adm_SaveJSON(eval(ListsAre{iList}), SavePath);
     end
+
+end
+
 
 end

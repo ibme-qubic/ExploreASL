@@ -21,6 +21,7 @@ function [result, x] = xASL_module_Population(x)
 % 040_GetDICOMStatistics        - Create TSV file with overview of DICOM parameters
 % 050_GetVolumeStatistics       - Create TSV file with overview of volumetric parameters
 % 060_GetMotionStatistics       - Create TSV file with overview of motion parameters
+% 065_GetRegistrationStatistics - Create TSV file with overview of the registration statistics
 % 070_GetROIstatistics          - Create TSV file with overview of regional values (e.g. qCBF, mean control, pGM etc)
 % 080_SortBySpatialCoV          - Sort ASL_Check QC images by their spatial CoV in quality bins
 % 090_DeleteAndZip              - Delete temporary files and gzip all NIfTIs
@@ -34,30 +35,38 @@ function [result, x] = xASL_module_Population(x)
 %% ------------------------------------------------------------------------------------------------------------
 %% Admin
 
-x = xASL_init_GenericMutexModules(x, 'QC'); % starts mutex locking process to ensure that everything will run only once
+if x.iWorker>1 % run population module only once when ExploreASL is called multiple times in parallel
+    warning(['I am worker ' xASL_num2str(x.iWorker) ', population module shouldnt run parallel, skipping']);
+    return;
+end
+
+if ~isfield(x,'bNativeSpaceAnalysis') || isempty(x.bNativeSpaceAnalysis)
+	x.bNativeSpaceAnalysis = 0;
+end
+
+% Check if we have ASL or not, to know if we need to run ASL-specific stuff/warnings
+bHasASL = ~isempty(xASL_adm_GetFileList(x.D.PopDir, '^.*ASL_\d\.nii$'));
+if ~bHasASL
+    warning('Detected no ASL scans, skipping ASL-specific parts of the Population module');
+end
+
+x = xASL_init_InitializeMutex(x, 'QC'); % starts mutex locking process to ensure that everything will run only once
 x = xASL_init_FileSystem(x);
 xASL_adm_CreateDir(x.S.StatsDir);
 
-% Define ASL sequence (quick&dirty, if ASL information exists)
-if ~isfield(x,'Sequence') && isfield(x,'readout_dim')
-    if strcmp(x.readout_dim,'2D')
-       x.Sequence = '2D_EPI'; % assume that 2D is 2D EPI, irrespective of vendor
-    elseif strcmp(x.readout_dim,'3D') && ( ~isempty(regexp(x.Vendor,'Philips')) || ~isempty(regexp(x.Vendor,'Siemens')) )
-           x.Sequence = '3D_GRASE'; % assume that 3D Philips or Siemens is 3D GRASE
-    elseif strcmp(x.readout_dim,'3D') && ~isempty(regexp(x.Vendor,'GE'))
-           x.Sequence = '3D_spiral'; % assume that 3D GE is 3D spiral
-    end
-end
+% Obtain ASL sequence
+x = xASL_adm_DefineASLSequence(x);
 
-StateName{1} = '010_CreatePopulationTemplates';
-StateName{2} = '020_CreateAnalysisMask';
-StateName{3} = '030_CreateBiasfield';
-StateName{4} = '040_GetDICOMStatistics';
-StateName{5} = '050_GetVolumeStatistics';
-StateName{6} = '060_GetMotionStatistics';
-StateName{7} = '070_GetROIstatistics';
-StateName{8} = '080_SortBySpatialCoV';
-StateName{9} = '090_DeleteAndZip';
+StateName{1}  = '010_CreatePopulationTemplates';
+StateName{2}  = '020_CreateAnalysisMask';
+StateName{3}  = '030_CreateBiasfield';
+StateName{4}  = '040_GetDICOMStatistics';
+StateName{5}  = '050_GetVolumeStatistics';
+StateName{6}  = '060_GetMotionStatistics';
+StateName{7}  = '065_GetRegistrationStatistics';
+StateName{8}  = '070_GetROIstatistics';
+StateName{9}  = '080_SortBySpatialCoV';
+StateName{10} = '090_DeleteAndZip';
 
 
 
@@ -69,10 +78,11 @@ if ~x.mutex.HasState(StateName{1})
     % Save FoV mask as susceptibility mask for 3D spiral
     % as 3D spiral doesnt have a susceptibility artifact (or negligible)
 
-    FoVPath = fullfile(x.D.TemplatesStudyDir,'FoV_bs-mean_Unmasked.nii');
+    FoVPath = xASL_adm_GetFileList(x.D.TemplatesStudyDir, '^FoV_.*bs-mean_Unmasked\.nii$', 'FPList');
     SusceptPath = fullfile(x.D.TemplatesStudyDir,'MaskSusceptibility_bs-mean.nii');
-    if strcmp(x.Sequence,'3D_spiral') && xASL_exist(FoVPath)
-        xASL_io_SaveNifti(FoVPath, SusceptPath, xASL_io_Nifti2Im(FoVPath),[],false);
+
+    if strcmpi(x.Sequence,'3d_spiral') && ~isempty(FoVPath)
+        xASL_io_SaveNifti(FoVPath, SusceptPath, xASL_io_Nifti2Im(FoVPath{1}),[],false);
     end
 
     x.mutex.AddState(StateName{1});
@@ -83,17 +93,16 @@ end
 
 
 %% General settings
-x = xASL_init_PopulationSettings(x);
 x = xASL_adm_CreateFileReport(x);
 % xASL_wrp_PVC_HiRes( x ); % PVEc correction in standard space high resolution, using B-splines
 
 %% ------------------------------------------------------------------------------------------------------------
 %% 2    Create population-based analysis mask for ROI-based analysis & VBA
-if ~x.mutex.HasState(StateName{2})
+if ~x.mutex.HasState(StateName{2}) && bHasASL
     x = xASL_im_CreateAnalysisMask(x);
     x.mutex.AddState(StateName{2});
     fprintf('%s\n',[StateName{2} ' was performed']);
-else
+elseif bHasASL
     fprintf('%s\n',[StateName{2} ' has already been performed, skipping...']);
 end
 
@@ -101,11 +110,11 @@ end
 
 %% -----------------------------------------------------------------------------
 %% 3    Multi-sequence equalization
-if ~x.mutex.HasState(StateName{3})
+if ~x.mutex.HasState(StateName{3}) && bHasASL
     xASL_wrp_CreateBiasfield(x); % later to include: smoothness equalization, geometric distortion correction etc
     x.mutex.AddState(StateName{3});
     fprintf('%s\n',[StateName{3} ' was performed']);
-else
+elseif bHasASL
     fprintf('%s\n',[StateName{3} ' has already been performed, skipping...']);
 end
 
@@ -115,8 +124,8 @@ end
 %% -----------------------------------------------------------------------------
 %% 4    Print DICOM header parameters & check whether there are outliers
 if ~x.mutex.HasState(StateName{4})
-    ScanType = {'ASL4D' 'M0' 'func'};
-    HasSessions = {1 1 1};
+    ScanType = {'ASL4D' 'M0'};
+    HasSessions = {1 1};
 
     for iType=1:length(ScanType)
         xASL_stat_GetDICOMStatistics(x, ScanType{iType}, HasSessions{iType});
@@ -134,7 +143,9 @@ end
 %% -----------------------------------------------------------------------------
 %% 5    Summarize volume statistics (uses native space)
 if ~x.mutex.HasState(StateName{5})
-    xASL_stat_GetVolumeStatistics( x, 1);
+
+    xASL_stat_GetVolumeStatistics(x);
+
     x.mutex.AddState(StateName{5});
     fprintf('%s\n',[StateName{5} ' was performed']);
 else
@@ -145,34 +156,44 @@ end
 
 %% -----------------------------------------------------------------------------
 %% 6    Summarize motion statistics (using generated net displacement vector (NDV) motion results from ASL-realign module)
-if ~x.mutex.HasState(StateName{6})
+if ~x.mutex.HasState(StateName{6}) && bHasASL
     try
-        xASL_stat_GetMotionStatistics(x, 1);
+        xASL_stat_GetMotionStatistics(x);
         x.mutex.AddState(StateName{6});
         fprintf('%s\n',[StateName{6} ' was performed']);
     catch ME
         warning('Motion summarizing failed:');
         fprintf('%s\n',ME.message);
     end
-else
+elseif bHasASL
     fprintf('%s\n',[StateName{6} ' has already been performed, skipping...']);
 end
 
+%% -----------------------------------------------------------------------------
+%% 6.5  Summarize registration statistics (using the Tanimoto coefficients calculated in the ASL and Structural submodules)
+if ~x.mutex.HasState(StateName{7})
+    try
+        xASL_stat_GetRegistrationStatistics(x);
+        x.mutex.AddState(StateName{7});
+        fprintf('%s\n',[StateName{7} ' was performed']);
+    catch ME
+        warning('Registration summarizing failed:');
+        fprintf('%s\n',ME.message);
+    end
+else
+    fprintf('%s\n',[StateName{7} ' has already been performed, skipping...']);
+end
 
 %% -----------------------------------------------------------------------------
 %% 7    ROI statistics
-if ~x.mutex.HasState(StateName{7})
+if ~x.mutex.HasState(StateName{8})
 
-    x = xASL_init_LoadStatsData(x); % Add statistical variables, if there are new ones
+    x = xASL_init_LoadMetadata(x); % Add statistical variables, if there are new ones
 %     if exist('ASL','var')
-%         xASL_im_OverlapT1_ASL(x, ASL.Data.data); % Overlap T1 GM probability map & CBF, Create image showing spatial/visual agreement between T1 GM segmentation & ASL
+%         xASL_vis_OverlapT1_ASL(x, ASL.Data.data); % Overlap T1 GM probability map & CBF, Create image showing spatial/visual agreement between T1 GM segmentation & ASL
 %     end
-    x = xASL_wrp_Load4DMemMapping_LesionsROIs(x); % Create study-specific atlases for ROIs/Lesions
-    xASL_stat_SummarizeEstimatedResolution(x); % Create an overview of estimated effective resolution of ASL native space images
 
     xASL_stat_ComputeWsCV(x); % This computes wsCV & bsCV to compute power
-
-    % xASL_stat_CreateDescriptTable(x);
 
     % ROI statistics
     % x.S.SubjectWiseVisualization =1; % set this on to visualize the subject-wise masks
@@ -186,12 +207,51 @@ if ~x.mutex.HasState(StateName{7})
 %     xASL_wrp_GetROIstatistics( x);
 
     x.S.InputDataStr = 'qCBF'; % 'SD' 'TT' 'M0' 'R1' 'ASL_HctCohort' 'ASL_HctCorrInd'
-    x.S.InputAtlasPath = fullfile(x.D.MapsSPMmodifiedDir,'TotalGM.nii');
-    xASL_wrp_GetROIstatistics(x);
+	x.S.InputDataStrNative = 'CBF'; % 'SD' 'TT' 'M0' 'R1' 'ASL_HctCohort' 'ASL_HctCorrInd'
+    x.S.InputNativeSpace = 0;
+	x.S.InputAtlasPath = fullfile(x.D.MapsSPMmodifiedDir,'TotalGM.nii');
+	xASL_wrp_GetROIstatistics(x);
+	if x.bNativeSpaceAnalysis
+		x.S.InputNativeSpace = 1;
+		[~,x.S.InputAtlasNativeName] = xASL_fileparts(x.P.Path_TotalGMPop);
+		xASL_wrp_GetROIstatistics(x);
+	end
+
+	x.S.InputNativeSpace = 0;
     x.S.InputAtlasPath = fullfile(x.D.MapsSPMmodifiedDir,'DeepWM.nii');
-    xASL_wrp_GetROIstatistics(x);
+	xASL_wrp_GetROIstatistics(x);
+	if x.bNativeSpaceAnalysis
+		x.S.InputNativeSpace = 1;
+		[~,x.S.InputAtlasNativeName] = xASL_fileparts(x.P.Path_DeepWMPop);
+		xASL_wrp_GetROIstatistics(x);
+	end
+
+	x.S.InputNativeSpace = 0;
     x.S.InputAtlasPath = fullfile(x.D.MapsSPMmodifiedDir,'MNI_structural.nii');
-    xASL_wrp_GetROIstatistics(x);
+	xASL_wrp_GetROIstatistics(x);
+	if x.bNativeSpaceAnalysis
+		x.S.InputNativeSpace = 1;
+		[~,x.S.InputAtlasNativeName] = xASL_fileparts(x.P.Path_MNIStructuralPop);
+		xASL_wrp_GetROIstatistics(x);
+	end
+	x.S.InputNativeSpace = 0;
+    x.S.InputAtlasPath = fullfile(x.D.AtlasDir,'Hammers.nii');
+	xASL_wrp_GetROIstatistics(x);
+	if x.bNativeSpaceAnalysis
+		x.S.InputNativeSpace = 1;
+		[~,x.S.InputAtlasNativeName] = xASL_fileparts(x.P.Path_HammersPop);
+		xASL_wrp_GetROIstatistics(x);
+    end
+
+    % Check if we should do the same for Lesion or ROI masks (i.e.
+    % individual "atlases") -> NB not yet developed/tested in native space
+    LesionROIList = xASL_adm_GetFileList(x.D.PopDir, 'r(Lesion|ROI).*\.nii$', 'FPList', [0 Inf]);
+    x.S.InputNativeSpace = 0;
+    for iAtlas = 1:length(LesionROIList)
+        x.S.InputAtlasPath = LesionROIList{iAtlas};
+        xASL_wrp_GetROIstatistics(x);
+    end
+
 
 %     % Do the same for volumetrics
 %     x.S.IsASL = false;
@@ -204,29 +264,29 @@ if ~x.mutex.HasState(StateName{7})
 %     x.S.InputAtlasPath = fullfile(x.D.AtlasDir,'Hammers.nii');
 %     xASL_wrp_GetROIstatistics(x);
 
-    x.mutex.AddState(StateName{7});
-    fprintf('%s\n',[StateName{7} ' was performed']);
-else
-    fprintf('%s\n',[StateName{7} ' has already been performed, skipping...']);
-end
-
-%% -----------------------------------------------------------------------------
-%% 8    QC categorization based on spatial CoV:
-if ~x.mutex.HasState(StateName{8})
-    xASL_qc_SortBySpatialCoV(x);
-
-    % When this has been visually corrected, following function will obtain the QC categories
-    % xASL_qc_ObtainQCCategoriesFromJPG(x);
     x.mutex.AddState(StateName{8});
     fprintf('%s\n',[StateName{8} ' was performed']);
 else
     fprintf('%s\n',[StateName{8} ' has already been performed, skipping...']);
 end
 
+%% -----------------------------------------------------------------------------
+%% 8    QC categorization based on spatial CoV:
+if ~x.mutex.HasState(StateName{9}) && bHasASL
+    xASL_qc_SortBySpatialCoV(x);
+
+    % When this has been visually corrected, following function will obtain the QC categories
+    % xASL_qc_ObtainQCCategoriesFromJPG(x);
+    x.mutex.AddState(StateName{9});
+    fprintf('%s\n',[StateName{9} ' was performed']);
+elseif bHasASL
+    fprintf('%s\n',[StateName{9} ' has already been performed, skipping...']);
+end
+
 
 %% -----------------------------------------------------------------------------
 %% 9    Reduce data size
-if ~x.mutex.HasState(StateName{9})
+if ~x.mutex.HasState(StateName{10})
     if ~x.bReproTesting && x.DELETETEMP
         xASL_adm_DeleteManyTempFiles(x);
     end
@@ -236,10 +296,10 @@ if ~x.mutex.HasState(StateName{9})
     % the disc space. These files may be re-used in the event of a
     % re-processing, which is why we zip them instead of deleting them.
     xASL_adm_GzipAllFiles(x.D.ROOT);
-    x.mutex.AddState(StateName{9});
-    fprintf('%s\n',[StateName{9} ' was performed']);
+    x.mutex.AddState(StateName{10});
+    fprintf('%s\n',[StateName{10} ' was performed']);
 else
-    fprintf('%s\n',[StateName{9} ' has already been performed, skipping...']);
+    fprintf('%s\n',[StateName{10} ' has already been performed, skipping...']);
 end
 
 
@@ -248,5 +308,6 @@ end
 x.mutex.AddState('999_ready');
 x.mutex.Unlock();
 result = true;
+close all;
 
 end

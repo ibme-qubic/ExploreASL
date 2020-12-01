@@ -199,7 +199,7 @@ xASL_adm_CreateDir(RawDir);
 % SiteName     = {'010GEHDxT'   '010SIPrisma' '011SiPrisma' '012SiVerio' '015SiPrisma'  '020PhAchieva' '021Si' '022PhIngenia' '024SiArea'  '030PhIngenia' '031SiTrio' '032SiVida'  '040PhIngenuity' '050PhIngenia' '060Skyra'};
 
 %% Load the ScanType Labels Configuration
-[~, ScanTypeConfig] = xASL_adm_csv2tsv(fullfile(RawDir, 'ScanType_LabelsConfig.csv'), false, false);
+[ScanTypeConfig] = xASL_csvRead(fullfile(RawDir, 'ScanType_LabelsConfig.csv'));
 
 SiteNrString = ScanTypeConfig(1,5:end); % NB: THIS ASSUMES THAT VENDORS START AT THE 5TH COLUMN
 SiteNrString = cellfun(@(x) x(5:end), SiteNrString, 'UniformOutput',false);
@@ -274,6 +274,11 @@ for iSite=1:length(SiteNrString) % iSite loops over sites (i.e. scanners)
     fprintf('%s',['Processing scanner ' SiteNrString{iSite} ':   '])
     SubjectList = xASL_adm_GetFsList(SiteDir,'^\d{3}EPAD\d*$', true, [], [], [0 Inf]);
 
+    if isempty(SubjectList)
+        fprintf('%s\n',['No subjects found for scanner ' SiteNrString{iSite} ', skipping...']);
+        continue;
+    end
+    
     % Now we process it
     for iScanType=1:length(ScanTypeName) % Initialize the CurationTable
         CurationTable{iSite}{iScanType}(1,1:6) = {'SubjectName' 'VisitName' 'nFoundDuplicates' 'nDeletedDuplicates' 'nScansFound' 'nScansUnknownName'};
@@ -307,8 +312,8 @@ for iSite=1:length(SiteNrString) % iSite loops over sites (i.e. scanners)
             %% 3) Second part of the sorting: manage ScanTypes
             %  Here we will delete them, check them, etc & add them to the list
             for iScanType=1:length(ScanTypeName) % iM loops over "modalities"
-                TotalCount = length(SubjectList)*length(VisitList)+length(ScanTypeName);
-                CurrentCount = (iSubject-1)*length(VisitList)*length(ScanTypeName)+iVisit*length(ScanTypeName)+iScanType;
+                TotalCount = length(SubjectList)*length(VisitList)*length(ScanTypeName);
+                CurrentCount = (iSubject-1)*length(VisitList)*length(ScanTypeName)+(iVisit-1)*length(ScanTypeName)+iScanType;
                 xASL_TrackProgress(CurrentCount, TotalCount);                    
 
                 ScanTypeDir = fullfile(VisitDir, ScanTypeName{iScanType});
@@ -381,9 +386,9 @@ for iSite=1:length(SiteNrString) % iSite loops over sites (i.e. scanners)
             [UIDWarningReported, DifferentStudyUIDList] = VerifyIdenticalStudyUID(UIDWarningReported, StudyInstanceUID, iSite, iSubject, SubjectList, iVisit, VisitList, DifferentStudyUIDList);
 
             fclose(fopen(PathStatus, 'wt')); % create processed file
+            fprintf('\n');
         end % loop over visits
     end % loop over subjects
-    fprintf('\n');
 end % loop over sites
 
 
@@ -556,10 +561,11 @@ for iScanType=1:length(ScanTypeList)
             gunzip(fullfile(ScanDir, '*.gz'));
             xASL_adm_DeleteFileList(ScanDir, '^.*\.dcm\.gz$',0,[0 Inf]);
         end
-        % Fixing dcm suffixes without extensions
-        SuffList = xASL_adm_GetFileList(ScanDir, '^.*[^.]dcm$', 'FPList', [0 Inf]);
+        % Fixing dcm suffixes with non-.dcm extension (e.g. IMG (GE), IMA (Siemens), empty extension)
+        SuffList = xASL_adm_GetFileList(ScanDir, '(.*\.img|.*\.dic|.*\.IMA|^([^.]*))$', 'FPList', [0 Inf]);
         for iSuff=1:length(SuffList)
-            xASL_Move(SuffList{iSuff}, [SuffList{iSuff}(1:end-3) '.dcm']);
+            [Fpath, Ffile] = fileparts(SuffList{iSuff});
+            xASL_Move(SuffList{iSuff}, fullfile(Fpath, [Ffile '.dcm']));
         end
         % Removing odd dicom0 files
         if ~isempty(xASL_adm_GetFileList(ScanDir, '^.*\.dcm0$', 'FPList', [0 Inf]))
@@ -590,7 +596,7 @@ for iScanType=1:length(ScanTypeList)
                 
                 % b) add "ExamCard" to folder name
                 [Dpath, Dfile] = fileparts(Dpath);
-                Dfile = xASL_adm_CorrectName(Dfile);
+                Dfile = xASL_adm_CorrectName(Dfile, [], '*');
                 if strcmp(Dfile(end-2:end),'MR_') || strcmp(Dfile(end-2:end),'MR-')
                     Dfile = [Dfile(1:end-3) 'MR-ExamCard'];
                 elseif strcmp(Dfile(end-2:end),'_MR') || strcmp(Dfile(end-2:end),'-MR')
@@ -812,8 +818,8 @@ else
 end
 
 
-CorrAcqName = xASL_adm_CorrectName(lower(ScanListSeriesName), 2);
-CorrDcmName = xASL_adm_CorrectName(lower(SeriesDescription), 2);
+CorrAcqName = xASL_adm_CorrectName(lower(ScanListSeriesName), 2, '*'); % The asterisk '*' is left in for T2*
+CorrDcmName = xASL_adm_CorrectName(lower(SeriesDescription), 2, '*');
 if isempty(strfind(CorrAcqName, CorrDcmName))
     % if there is a name discrepancy between dicom field & folder
     % (the SeriesDescription should be inside the FolderName)
@@ -830,7 +836,7 @@ if isempty(strfind(CorrAcqName, CorrDcmName))
         % & if this differed from what it currently is
         
         % Then rename folder
-        ScanList = xASL_adm_CorrectName(SeriesDescription, 1);
+        ScanList = xASL_adm_CorrectName(SeriesDescription, 1, '*');
 
         if ~isempty(PreFix)
             ScanList = [PreFix ScanList];
@@ -903,7 +909,7 @@ ScanTypeMatch = find(cellfun(@(x) ~isempty(regexp(lower(AcqName),['.*' x '.*']))
 if ~isempty(ScanTypeMatch)
     % always take the first ScanType match (note the hierarchy specified above)
     ScanTypeMatch = ScanTypeName{ScanTypeMatch(1)};
-    ScanTypeMatch = xASL_adm_CorrectName(ScanTypeMatch);
+    ScanTypeMatch = xASL_adm_CorrectName(ScanTypeMatch, [], '*');
     ScanDir = fullfile(ScanTypeDir, ScanList);
     NewDir = fullfile(VisitDir, ScanTypeMatch);
     NewScanDir = fullfile(NewDir, ScanList);
@@ -1575,7 +1581,7 @@ if isfield(Info,'ProtocolName') && ~isempty(Info.ProtocolName)
 end
 
 if isempty(SeriesDescription) && isfield(Info,'ImageType') && ~isempty(Info.ImageType)
-    SeriesDescription = xASL_adm_CorrectName(Info.ImageType); % only add ImageType if nothing else works
+    SeriesDescription = xASL_adm_CorrectName(Info.ImageType, [], '*'); % only add ImageType if nothing else works
 end    
 
 if strcmp(lower(SeriesDescription), 'examcard')

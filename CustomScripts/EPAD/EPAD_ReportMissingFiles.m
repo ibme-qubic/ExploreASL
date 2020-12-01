@@ -10,7 +10,7 @@ RawDir = fullfile(ROOT,'raw');
 SavePath = fullfile(AnalysisDir, 'ReportMissingRawNIfTI.csv');
 
 %% Load the ScanType Labels Configuration
-[~, ScanTypeConfig] = xASL_adm_csv2tsv(fullfile(RawDir, 'ScanType_LabelsConfig.csv'), false, false);
+[ScanTypeConfig] = xASL_csvRead(fullfile(RawDir, 'ScanType_LabelsConfig.csv'));
 TypeList = ScanTypeConfig(2:end,4); % ExploreASL names of the scantypes
 WhichRows = cellfun(@(x) ~isempty(x), TypeList); % which of the TypeLists is not empty
 ScanTypeConfig = ScanTypeConfig(logical([1; WhichRows]),:);
@@ -58,7 +58,7 @@ for iSite=1:length(SiteN)
     
     fprintf(FID, ['\n\n\n' SiteCurrent]);
     fprintf(['\nProcessing ' SiteCurrent ':   ']);
-    SubjDirs = xASL_adm_GetFileList(AnalysisDir, ['^' SiteCurrent 'EPAD\d*$'], 'FPList', [0 Inf], true);
+    SubjDirs = xASL_adm_GetFileList(AnalysisDir, ['^' SiteCurrent 'EPAD\d*(_|\d*)$'], 'FPList', [0 Inf], true);
     for iT=1:nFields % for ScanTypes
     	xASL_TrackProgress(iT,nFields);
         % first check if this ScanType should exist
@@ -96,6 +96,7 @@ for iSite=1:length(SiteN)
 end
     
 fclose(FID);
+fprintf('\n');
 
 if DeleteNII
     warning('Deleting subjects that were incomplete');

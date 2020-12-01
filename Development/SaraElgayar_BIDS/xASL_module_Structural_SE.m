@@ -15,7 +15,7 @@ function [result x] = xASL_module_Structural(job, x)
 
 %% Administration
 
-x        = xASL_init_GenericMutexModules( x, 'T1' ); % starts mutex locking process to ensure that everything will run only once
+x        = xASL_init_InitializeMutex( x, 'T1' ); % starts mutex locking process to ensure that everything will run only once
 x        = xASL_init_FileSystem(x);
 
 
@@ -73,9 +73,9 @@ if  ~isempty(ROI_T1_list) || ~isempty(ROI_FLAIR_list)
 end
 
 
-if      strcmp(x.WMHsegmAlg,'LPA')
+if      strcmpi(x.WMHsegmAlg,'LPA')
         rWMHPath               = fullfile( x.SUBJECTDIR, ['ples_lpa_mr' x.P.FLAIR '.nii']);
-elseif  strcmp(x.WMHsegmAlg,'LGA')
+elseif  strcmpi(x.WMHsegmAlg,'LGA')
         rWMHPath                = fullfile( x.SUBJECTDIR, ['ples_lga_0.3_rmr' x.P.FLAIR '.nii']);% 0.3 an initial threshold.
 else
         error('Unknown WMH segmentation option');
@@ -363,17 +363,17 @@ end
 if ~x.mutex.HasState('040_segment_FLAIR')  % tracks progress through lock/ *.status files, & locks current run
     if  xASL_exist(x.P.Path_rFLAIR,'file')
 
-        if  strcmp(x.WMHsegmAlg,'LPA')
+        if  strcmpi(x.WMHsegmAlg,'LPA')
             fprintf('%s\n','WMH segmentation performed using LST LPA')
             % Lesion Prediction Algorithm (LPA)
              rWMHPath = xASL_wrp_LST_lpa(x);
 
-        elseif strcmp(x.WMHsegmAlg,'LGA')
+        elseif strcmpi(x.WMHsegmAlg,'LGA')
             fprintf('%s\n','WMH segmentation performed using LST LGA');
             % Lesion Growth Algorithm (LGA)
             rWMHPath= xASL_wrp_LST_lga(x);
 
-        elseif ~strcmp(x.WMHsegmAlg,'LPA') || ~strcmp(x.WMHsegmAlg,'LGA')
+        elseif ~strcmpi(x.WMHsegmAlg,'LPA') || ~strcmpi(x.WMHsegmAlg,'LGA')
                 error('Wrong WMH segmentation defined -> x.WMHsegmAlg should be LPA or LGA');
         end
 
@@ -480,7 +480,7 @@ if ~x.mutex.HasState('060_Get_WMH_vol')  % tracks progress through lock/ *.statu
         %folder
         oPath       = fullfile(SUBJECTDIR, BIDS_FileName(x.P.SubjectID,SessionID,'','WMH',x.WMHsegmAlg ,'','','cvs'));
         MoveFileIf(Fname{1},oPath,1 );
-        xASL_adm_csv2tsv(oPath,1); % convert to tsv per BIDS
+        xASL_bids_csv2tsvReadWrite(oPath,1); % convert to tsv per BIDS
 
         x.mutex.AddState('060_Get_WMH_vol');
         xASL_adm_CompareDataSets([], [], x); % unit testing
@@ -555,7 +555,7 @@ end
 % this crashes, then we can run SPM12
 
 if ~isfield(x,'Segment_SPM12')
-    x.Segment_SPM12 = 0;
+    x.SegmentSPM12 = 0;
 end
 % by default, use CAT12, not SPM12 for segmentation
 
@@ -618,7 +618,7 @@ if ~x.mutex.HasState('080_TissueVolume')   % tracks progress through lock/ *.sta
             save(mat_file,'image','tpm','Affine','lkp','MT','Twarp','Tbias','mg','mn','vr','wp','ll');
             clear image tpm Affine lkp MT Twarp Tbias mg mn vr wp ll volumes
 
-            job         = fullfile( x.D.FunctionsDir, 'xASL_spm_job_TissueVolume.m');
+            job         = fullfile(x.MyPath, 'Functions', 'xASL_spm_job_TissueVolume.m');
             mask_ICV    = GetImageList3D( fullfile(x.SPMDIR, 'tpm'), '^mask_ICV\.(nii|nii\.gz)$');
             SaveFile    = fullfile( x.D.TissueVolumeDir, ['TissueVolume_' x.P.SubjectID '.csv']);
 
@@ -626,7 +626,7 @@ if ~x.mutex.HasState('080_TissueVolume')   % tracks progress through lock/ *.sta
         end
 
         if  exist('SaveFile','var')
-            xASL_adm_csv2tsv(SaveFile,1);
+            xASL_bids_csv2tsvReadWrite(SaveFile,1);
         end
 
         x.mutex.AddState('080_TissueVolume');
@@ -658,7 +658,7 @@ if ~x.mutex.HasState('090_reslice2DARTEL')  % tracks progress through lock/ *.st
         % Lesion probability maps (do linear interpolation to avoid negative edge effects)
         xASL_spm_deformations(x,x.P.Path_WMH_PreSEGM,x.P.Pop_Path_rWMH_SEGM,1);
 
-        [INname,OUTname]     = xASL_wrp_LesionResliceList(x, Lesion_T1_list, Lesion_FLAIR_list,ROI_T1_list,ROI_FLAIR_list);
+        [INname,OUTname]     = xASL_adm_LesionResliceList(x, Lesion_T1_list, Lesion_FLAIR_list,ROI_T1_list,ROI_FLAIR_list);
 
         if  ~isempty(INname) && ~isempty(OUTname)
 
@@ -722,35 +722,35 @@ if ~x.mutex.HasState('100_visualize')  % tracks progress through lock/ *.status 
 
         %% Visualize lesions
         xASL_wrp_VisualCheckLesionRemoval( x, Lesion_T1_list, Lesion_FLAIR_list);
-        xASL_im_VisualizeROIs( x, ROI_T1_list, ROI_FLAIR_list);
+        xASL_vis_VisualizeROIs( x, [ROI_T1_list; ROI_FLAIR_list]);
 
         % Convert ROIs & lesions to specific masks
         for iS=1:length(Lesion_T1_list)
-            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rLesion_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii']), [], [], [], x );
+            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rLesion_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii']), x);
         end
         for iS=1:length(ROI_T1_list)
-            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rROI_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii']), [], [], [], x );
+            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rROI_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii']), x);
         end
         for iS=1:length(Lesion_FLAIR_list)
-            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rLesion_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii']), [], [], [], x );
+            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rLesion_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii']), x);
         end
         for iS=1:length(ROI_FLAIR_list)
-            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rROI_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii']), [], [], [], x );
+            xASL_im_Lesion2Mask( fullfile(x.D.PopDir, ['rROI_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii']), x);
         end
 
         % Show lesions individually
         for iS=1:length(Lesion_T1_list)
-            xASL_im_CreateVisualFig( x, {x.P.Pop_Path_rT1, fullfile(x.D.PopDir,['rLesion_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.LesionCheckDir,[0.8 1],[],[]);
+            xASL_vis_CreateVisualFig( x, {x.P.Pop_Path_rT1, fullfile(x.D.PopDir,['rLesion_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.LesionCheckDir,[0.8 1],[],[]);
         end
         for iS=1:length(Lesion_FLAIR_list)
-            xASL_im_CreateVisualFig( x, {x.P.Pop_Path_rFLAIR, fullfile(x.D.PopDir,['rLesion_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.LesionCheckDir,[0.8 1],[],[]);
+            xASL_vis_CreateVisualFig( x, {x.P.Pop_Path_rFLAIR, fullfile(x.D.PopDir,['rLesion_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.LesionCheckDir,[0.8 1],[],[]);
         end
         % Visualize ROIs (these are manually added native space ROIs)
         for iS=1:length(ROI_T1_list)
-            xASL_im_CreateVisualFig( x, {x.P.Pop_Path_rT1, fullfile(x.D.PopDir,['rROI_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.ROICheckDir,[0.8 1],[],[]);
+            xASL_vis_CreateVisualFig( x, {x.P.Pop_Path_rT1, fullfile(x.D.PopDir,['rROI_' x.P.STRUCT '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.ROICheckDir,[0.8 1],[],[]);
         end
         for iS=1:length(ROI_FLAIR_list)
-            xASL_im_CreateVisualFig( x, {x.P.Pop_Path_rFLAIR, fullfile(x.D.PopDir,['rROI_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.ROICheckDir,[0.8 1],[],[]);
+            xASL_vis_CreateVisualFig( x, {x.P.Pop_Path_rFLAIR, fullfile(x.D.PopDir,['rROI_' x.P.FLAIR '_' num2str(iS) '_' x.P.SubjectID '.nii'])},x.D.ROICheckDir,[0.8 1],[],[]);
         end
 
         x = xASL_qc_CollectParameters(x, iSubj, 0); % Quick & Dirty solution -> 0 indicates no ASL results

@@ -25,6 +25,8 @@ function status = xASL_adm_CreateDir(varargin)
 % Copyright 2015-2019 ExploreASL
 
    % Admin
+   warning('off','MATLAB:MKDIR:DirectoryExists'); % suppress this warning in case of parallel processing
+   
     if nargin == 1
 		% We give single path
         strPath = varargin{1};
@@ -34,7 +36,7 @@ function status = xASL_adm_CreateDir(varargin)
 			% A path and subpath is given
 			% Checks for the existence of the base directory
 			if ~exist(varargin{1},'dir')
-				error(['xASL_adm_CreateDir: Base directory does not exist: ', varargin{1}]);
+				error(['Base directory does not exist: ', varargin{1}]);
 			end
 			
 			% how many subdirs are added (ignore leading/trailing filesep)
@@ -50,14 +52,24 @@ function status = xASL_adm_CreateDir(varargin)
             strPath = varargin{1};
             nMaxNewDirs = varargin{2};
         else
-            error('xASL_adm_CreateDir: Second parameter should be char or numeric.');
+            error('Second parameter should be char or numeric');
         end
     else
-        error('xASL_adm_CreateDir: Requires one or two input parameters.');
+        error('Requires one or two input parameters');
     end
     
-    ROOTdir = fileparts(fileparts(fileparts(fileparts(fileparts(fileparts(fileparts(strPath)))))));
-    if ~exist(ROOTdir,'dir') && ~isempty(ROOTdir)
+    pathArr = regexp(strPath,filesep,'split');
+    ROOTdir = [pathArr{1} filesep];
+    if ~ispc
+        % also put a file separator in front of the folder name, especially
+        % when it is empty
+        ROOTdir = [filesep ROOTdir];
+    end
+    
+    IsRelativePath = isempty(ROOTdir) || strcmp(ROOTdir, filesep) || isempty(fileparts(strPath));
+    if ~exist(ROOTdir,'dir') && ~IsRelativePath
+        % We issue a warning when an absolute pathname is provided and the
+        % folder layer above this doesnt exist
         warning('This is an invalid directory path');
         status = 0;
         ret = 0;
@@ -87,5 +99,7 @@ function status = xASL_adm_CreateDir(varargin)
     if nargout>=1
         status = ret;
     end
+    
+    warning('on','MATLAB:MKDIR:DirectoryExists');
 end
 

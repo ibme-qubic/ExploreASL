@@ -62,7 +62,7 @@ end
 
 % Check whether we should do normal or strong biasfield correction
 x.T1BiasFieldRegularization = true; % default
-if isfield(x,'Vendor') && ~isempty(regexp(x.Vendor,'GE'))
+if isfield(x,'Vendor') && ~isempty(regexpi(x.Vendor,'GE'))
     x.T1BiasFieldRegularization = false; % SPM12
     % GE has wider bore scanners, resulting in a wide biasfield
 end
@@ -88,12 +88,12 @@ if x.bFixResolution % if we use CAT12 to segment
     CurrentVoxelSize = tNii.hdr.pixdim(2:4);
     if max(CurrentVoxelSize./[1.5 1.5 1.5]>[1.1 1.1 1.1]) % if any dimension is smaller than 1.5 mm resolution:
         NewVoxelSize = min(CurrentVoxelSize,[1.5 1.5 1.5]);
-    
+
         % first backup T1, if backup doest exist yet
         if ~xASL_exist(x.P.Path_T1_ORI)
             xASL_Copy(x.P.Path_T1, x.P.Path_T1_ORI);
         end
-        
+
         xASL_im_Upsample(x.P.Path_T1, x.P.Path_T1, NewVoxelSize, [], [], 'spline');
     end
 end
@@ -123,7 +123,7 @@ end
 % 'DARTEL' = does only DARTEL
 if ~isfield(x.Seg,'Method')
 	x.Seg.Method = 'default';
-elseif ~strcmp(x.Seg.Method, 'default') && ~strcmp(x.Seg.Method, 'DARTEL') && ~strcmp(x.Seg.Method, 'GS')
+elseif ~strcmpi(x.Seg.Method, 'default') && ~strcmpi(x.Seg.Method, 'DARTEL') && ~strcmpi(x.Seg.Method, 'GS')
     warning(['Wrong x.Seg.Method: ' xASL_num2str(x.Seg.Method) ', using default setting instead']);
     x.Seg.Method = 'default';
 end
@@ -169,8 +169,8 @@ end
 
 %% -------------------------------------------------------------------------------------------
 %% 3) Segmentation using CAT12
-%  This runs by default (default = x.SegmentSPM == 0)
-%  When it fails, it will pass x.SegmentSPM == 1
+%  This runs by default (default = x.SegmentSPM12 == 0)
+%  When it fails, it will pass x.SegmentSPM12 == 1
 if ~SegmentSPM12
     SegmentSPM12 = xASL_wrp_CAT12Segmentation(x);
 end
@@ -193,7 +193,7 @@ if SegmentSPM12
     return; % rest of the function is housekeeping for CAT12
 end
 
-
+close all;
 
 
 
@@ -212,7 +212,6 @@ OutFile{1} = x.P.Path_c1T1; % GM segmentation
 OutFile{2} = x.P.Path_c2T1; % WM segmentation
 OutFile{3} = x.P.Path_c3T1; % CSF segmentation
 OutFile{4} = x.P.Path_y_T1; % deformation field to common space
-OutFile{5} = fullfile(x.D.TissueVolumeDir,['catROI_' x.P.STRUCT '_' x.P.SubjectID '.mat']); % contains ROI volume values from several atlases
 OutFile{6} = fullfile(x.SUBJECTDIR,['catreport_' x.P.STRUCT '.pdf']);
 OutFile{7} = fullfile(x.D.TissueVolumeDir,['cat_' x.P.STRUCT '_' x.P.SubjectID '.mat']);
 OutFile{8} = fullfile(x.SUBJECTDIR,[x.P.STRUCT '_BiasFieldCorrected.nii.gz']); % GM segmentation
@@ -296,7 +295,8 @@ end
 %% 8) Manage flowfields
 if xASL_stat_SumNan(LesionIM(:))>0
     % Mix the DARTEL (non-linear) and SPM (uniform) flowfields based on Euclidian distance matrix
-    Fields2Save = xASL_wrp_CombineFlowFields(x, Path_Transf_SPM, Path_Transf_DARTEL, LesionIM);
+    FlowfieldImage = xASL_wrp_CombineFlowFields(x, Path_Transf_SPM, Path_Transf_DARTEL, LesionIM);
+    xASL_io_SaveNifti(Path_Transf_SPM, x.P.Path_y_T1, FlowfieldImage, [], false);
     xASL_Move(Path_Transf_DARTEL, x.P.Path_y_T1, true);
 else % if no lesion existed, keep the non-linear flowfield (if it exists, otherwise take the SPM flowfield)
     if xASL_exist(Path_Transf_DARTEL, 'file')
@@ -304,17 +304,16 @@ else % if no lesion existed, keep the non-linear flowfield (if it exists, otherw
     elseif xASL_exist(Path_Transf_SPM, 'file')
            xASL_Move(Path_Transf_SPM, x.P.Path_y_T1, true);
     end
-
-    Fields2Save = xASL_io_Nifti2Im(x.P.Path_y_T1);
 end
 
-% Extrapolate over NaNs for smooth edges of flow fields
-for iE=1:size(Fields2Save, 5)
-    Fields2Save(:,:,:,1,iE) = xASL_im_ExtrapolateOverNaNs(squeeze(Fields2Save(:,:,:,1,iE)));
+if ~x.Quality % With low quality, registration was performed on lower resolution,
+              % & transformation needs to be upsampled to correct resolution
+    xASL_spm_reslice(x.D.ResliceRef, x.P.Path_y_T1, [], [], x.Quality, x.P.Path_y_T1, 1);
 end
 
+% Fill NaNs with identity for smooth edges of flow fields
+xASL_im_FillNaNs(x.P.Path_y_T1, 3, x.Quality, [], x);
 
-xASL_io_SaveNifti(x.P.Path_y_T1, x.P.Path_y_T1, Fields2Save, [], false);
 
 
 
@@ -322,10 +321,9 @@ xASL_io_SaveNifti(x.P.Path_y_T1, x.P.Path_y_T1, Fields2Save, [], false);
 %% 9) File management
 xASL_adm_RemoveTempFilesCAT12(x);
 
-if ~x.Quality % With low quality, registration was performed on lower resolution,
-              % & transformation needs to be upsampled to correct resolution
-    xASL_spm_reslice(x.D.ResliceRef, x.P.Path_y_T1, [], [], x.Quality, x.P.Path_y_T1, 1);
-end
+
+
+
 
 
 
@@ -381,7 +379,7 @@ if bForce
         if exist(DirList{iL}, 'dir')
            try
               rmdir(DirList{iL}, 's');
-           catch ME 
+           catch ME
                warning(ME.message);
            end
         end
@@ -420,7 +418,7 @@ function xASL_wrp_SPM12Segmentation(x)
 			matlabbatch{1}.spm.spatial.preproc.tissue(iDim).tpm = {fullfile(x.SPMDIR, 'tpm', ['TPM.nii,' num2str(iDim)])};
 		end
 	end
-	
+
 
     %% Tissue-class specific options
     matlabbatch{1}.spm.spatial.preproc.tissue(1).ngaus      = 1;
@@ -460,6 +458,7 @@ function xASL_wrp_SPM12Segmentation(x)
 
     %% Run the segmentation
     spm_jobman('run', matlabbatch);
+    close all;
     warning('on', 'MATLAB:nearlySingularMatrix');
 
 end
@@ -480,8 +479,14 @@ SegmentSPM12 = true; % by default, run SPM12 when CAT12 crashes
 %% --------------------------------------------------------------------
 %% CAT12 template & registration settings
 SPMTemplateNII    = fullfile(x.SPMDIR, 'tpm', 'TPM.nii');
-DartelTemplateNII = fullfile(x.SPMDIR, 'toolbox', 'cat12', 'templates_1.50mm', 'Template_1_IXI555_MNI152.nii');
-GSTemplateNII     = fullfile(x.SPMDIR, 'toolbox', 'cat12', 'templates_1.50mm', 'Template_0_IXI555_MNI152_GS.nii');
+[~,catVer] = cat_version();
+if str2double(catVer) > 1500
+	catTempDir = 'templates_volumes';
+else
+	catTempDir = 'templates_1.50mm';
+end
+DartelTemplateNII = fullfile(x.SPMDIR, 'toolbox', 'cat12', catTempDir, 'Template_1_IXI555_MNI152.nii');
+GSTemplateNII     = fullfile(x.SPMDIR, 'toolbox', 'cat12', catTempDir, 'Template_0_IXI555_MNI152_GS.nii');
 
 if x.Pediatric_Template
 	DartelTemplateNII = fullfile(x.SPMDIR, 'MapsAdded', 'templates_pediatric', ['Template_1_' x.Pediatric_Type '_DARTEL.nii']);
@@ -500,47 +505,58 @@ matlabbatch{1}.spm.tools.cat.estwrite.extopts.xasl_savesteps           = x.Seg.S
 matlabbatch{1}.spm.tools.cat.estwrite.extopts.xasl_quality             = x.Quality;
 matlabbatch{1}.spm.tools.cat.estwrite.extopts.xasl_disabledartel       = x.Seg.DisableDARTEL;
 matlabbatch{1}.spm.tools.cat.estwrite.extopts.xasl_lesion              = {xASL_im_Lesion2CAT(x.P.Path_T1)};
-matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.darteltpm   = {DartelTemplateNII}; % Runs DARTEL to this n=555 subjects template
-matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shootingtpm = {GSTemplateNII}; % Runs Geodesic Shooting to this n=555 subjects template
-switch x.Seg.Method
-    case 'default'
-        matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 0.5; % chooses between 0 DARTEL & 4 Geodesic Shooting, this is the optimized 0.5 Geodesic Shooting
-    case 'GS'
-        matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 4;
-    case 'DARTEL'
-        matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 0;
+if str2double(catVer) > 1500
+	switch x.Seg.Method
+		case {'default' 'GS'}
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.shootingtpm = {GSTemplateNII}; % Runs Geodesic Shooting to this n=555 subjects template
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.regstr = 0.5;
+		case 'DARTEL'
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.dartel.darteltpm = {DartelTemplateNII}; % Runs DARTEL to this n=555 subjects template
+	end
+else
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.darteltpm   = {DartelTemplateNII}; % Runs DARTEL to this n=555 subjects template
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shootingtpm = {GSTemplateNII}; % Runs Geodesic Shooting to this n=555 subjects template
+	switch x.Seg.Method
+		case 'default'
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 0.5; % chooses between 0 DARTEL & 4 Geodesic Shooting, this is the optimized 0.5 Geodesic Shooting
+		case 'GS'
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 4;
+		case 'DARTEL'
+			matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.regstr = 0;
+	end
 end
+
 
 
 % matlabbatch{1}.spm.tools.cat.estwrite.extopts.cleanupstr = 0.5; % default line in cat12 segmentation batch script
 % Here we don't define CleanUpStr, which gives an error. For some reason it doesn"t want to be loaded through
 % the SPM conf initialization script. Nevertheless, cleanupstr = 0.5 by default in cat_defaults.m
 % so we can remove it here and ignore it
-
 %% --------------------------------------------------------------------
 %% CAT12 segmentation quality settings
-matlabbatch{1}.spm.tools.cat.estwrite.extopts.SLC = 0;
-if x.Quality
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP           = 1070; % full cleanup. 1070 light cleanup
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr        = 0.05; % 0.5; % strength local adaptive segmentation
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr       = 0; % using SPM approach -> 0.5 GCUT may be more robust, to avoid stripping GM at brain poles
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox           = 1.5; % voxelsize on which registration is run (1.5 == default)
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr          = 0.5; % SPM bias-correction strength
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.samp             = 3;   % spm sampling distance
-else
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP           = 0; % light cleanup
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr        = 0; % strength local adaptive segmentation
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr       = 0; % default SPM approach
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox           = 3; % voxelsize on which registration is run (1.5 == default)
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr          = eps;
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.samp             = 9;   % spm sampling distance
-end
+
+%matlabbatch{1}.spm.tools.cat.estwrite.extopts.SLC = 0;
+%matlabbatch{1}.spm.tools.cat.estwrite.extopts.WMHC = 0;
+
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP           = 1070; % full cleanup. 1070 light cleanup
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr        = 0.5; % 0.5; % strength local adaptive segmentation
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr       = 2; % using SPM approach -> 0.5 GCUT may be more robust, to avoid stripping GM at brain poles
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox           = 1.5; % voxelsize on which registration is run (1.5 == default)
+matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr          = 0.5; % SPM bias-correction strength
+matlabbatch{1}.spm.tools.cat.estwrite.opts.samp             = 3;   % spm sampling distance
 
 if x.T1BiasFieldRegularization
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr = 0.5; % CAT12
-else
-    % disable biasfield regularization for large biasfields (e.g. GE wide bore scanner)
+    % decrease biasfield regularization for large biasfields (e.g. GE wide bore scanner)
     matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr = 0.75; % CAT12
+end
+
+if ~x.Quality
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP           = 0; % light cleanup
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr        = 0; % strength local adaptive segmentation
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr       = 0; % default SPM approach
+	matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox           = 3; % voxelsize on which registration is run (1.5 == default)
+	matlabbatch{1}.spm.tools.cat.estwrite.opts.biasstr          = eps;
+	matlabbatch{1}.spm.tools.cat.estwrite.opts.samp             = 9;   % spm sampling distance
 end
 
 %% --------------------------------------------------------------------
@@ -551,7 +567,6 @@ matlabbatch{1}.spm.tools.cat.estwrite.nproc                 = 0; % don't split t
 
 matlabbatch{1}.spm.tools.cat.estwrite.opts.affreg           = 'mni'; % regularize affine registration for MNI European brains
 matlabbatch{1}.spm.tools.cat.estwrite.output.surface        = 0;   % don't do surface modeling
-matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.noROI  = struct([]); % don't do ROI estimations
 matlabbatch{1}.spm.tools.cat.estwrite.output.GM.native      = 1;   % save c1T1 in native space
 matlabbatch{1}.spm.tools.cat.estwrite.output.GM.mod         = 0;   % don't save modulation
 matlabbatch{1}.spm.tools.cat.estwrite.output.GM.dartel      = 0;   % don't save DARTEL space c1T1, this happens below in the reslice part
@@ -561,12 +576,12 @@ matlabbatch{1}.spm.tools.cat.estwrite.output.WM.dartel      = 0;   % don't save 
 matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native      = 1;   % save c3T1 in native space
 matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.mod         = 0;   % don't save modulation
 matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.dartel      = 0;   % don't save DARTEL space c2T1, this happens below in the reslice part
-matlabbatch{1}.spm.tools.cat.estwrite.output.jacobian.warped= 0;   % don't save Jacobians
 matlabbatch{1}.spm.tools.cat.estwrite.output.warps          = [1 0]; % save warp to MNI
 matlabbatch{1}.spm.tools.cat.estwrite.output.bias.warped    = 0;   % don't save bias-corrected T1.nii
-matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native      = 1;   % save c3T1 in native space
-matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.mod         = 0;   % don't save modulation
-matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.dartel      = 0;
+
+matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.noROI  = struct([]); % don't do ROI estimations
+matlabbatch{1}.spm.tools.cat.estwrite.output.jacobianwarped = 0;
+%matlabbatch{1}.spm.tools.cat.estwrite.output.labelnative = 1;
 
 if ~x.bFixResolution
     matlabbatch{1}.spm.tools.cat.estwrite.extopts.restypes.fixed= [1 0.1]; % process everything on 1 mm fixed resolution (default)
@@ -585,10 +600,15 @@ end
 
 try % 1) First attempt CAT12
     spm_jobman('run',matlabbatch); % Run CAT12
+    close all;
     SegmentSPM12 = false;
 catch
     if ~x.Quality
         warning('CAT12 failed with x.Quality==0, try x.Quality==1 instead!');
+        matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr        = 0.5; % 0.5; % strength local adaptive segmentation
+        matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr       = 2; % using SPM approach -> 0.5 GCUT may be more robust, to avoid stripping GM at brain poles
+        matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox           = 1.5; % voxelsize on which registration is run (1.5 == default)
+        matlabbatch{1}.spm.tools.cat.estwrite.opts.samp             = 3;   % spm sampling distance
     end
 
     try % 2) Second attempt CAT12
@@ -607,6 +627,7 @@ catch
 
         xASL_adm_RemoveTempFilesCAT12(x); % Delete previous CAT12 derivatives
         spm_jobman('run', matlabbatch); % Run CAT12
+        close all;
         SegmentSPM12 = false;
     catch % 3) Return to run SPM12 segmentation
         xASL_adm_RemoveTempFilesCAT12(x); % Delete previous CAT12 derivatives
@@ -628,7 +649,7 @@ end
 
 %% ===================================================================================================================
 %% ===================================================================================================================
-function [Fields2Save] = xASL_wrp_CombineFlowFields(x, Path_Transf_SPM, Path_Transf_DARTEL, LesionIM)
+function [FlowfieldImage] = xASL_wrp_CombineFlowFields(x, Path_Transf_SPM, Path_Transf_DARTEL, LesionIM)
 %xASL_wrp_CombineFlowFields Create Euclidian distance matrix, to mix the DARTEL (non-linear) and SPM (uniform) flow
 
 
@@ -706,7 +727,7 @@ end
 %IM_dartel(repmat(logical(LesionIM),[1 1 1 1 3])) = NaN;
 
 %% Fix the edges of the flowfields, extrapolate over the NaNs
-Fields2Save = IM_dartel;
+FlowfieldImage = IM_dartel;
 
 
 end
